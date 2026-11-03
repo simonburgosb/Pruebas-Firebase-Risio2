@@ -1,7 +1,7 @@
 // Esta configuración identifica la app web. El acceso lo protegen las reglas,
 // no la confidencialidad de apiKey. Nunca pongas credenciales Admin en el navegador.
 import {initializeApp, getAuth, getDatabase, getStorage, connectAuthEmulator,
-  connectDatabaseEmulator, connectStorageEmulator, getFunctions, connectFunctionsEmulator} from './vendor/firebase-sdk.js';
+  connectDatabaseEmulator, connectStorageEmulator} from './vendor/firebase-sdk.js';
 
 // Configuración pública inyectada al desplegar; no se guarda en el repositorio.
 const configResponse = await fetch('./firebase-config.json', {cache:'no-store'});
@@ -24,12 +24,10 @@ export const auth = getAuth(app);
 auth.languageCode = 'es';
 export const database = getDatabase(app);
 export const storage = getStorage(app);
-export const functions = getFunctions(app, 'us-central1');
 if (emulatorMode) {
   connectAuthEmulator(auth, 'http://127.0.0.1:9099', {disableWarnings: true});
   connectDatabaseEmulator(database, '127.0.0.1', 9000);
   connectStorageEmulator(storage, '127.0.0.1', 9199);
-  connectFunctionsEmulator(functions, '127.0.0.1', 5001);
 }
 
 export function withTimeout(promise, message = 'La conexión está tardando demasiado. Revisa internet e inténtalo de nuevo.', ms = 15000) {

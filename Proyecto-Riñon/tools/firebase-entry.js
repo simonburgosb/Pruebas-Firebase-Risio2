@@ -9,4 +9,4 @@ export {getDatabase, ref, get, set, update, remove, push, onValue, query, limitT
 export {getStorage, ref as storageRef, uploadBytes, getBytes, deleteObject,
   connectStorageEmulator} from 'firebase/storage';
 
-export {getFunctions, httpsCallable, connectFunctionsEmulator} from 'firebase/functions';
+

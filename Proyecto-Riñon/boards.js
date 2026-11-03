@@ -52,13 +52,19 @@ const canvas = $('#board-canvas'), ctx = canvas.getContext('2d');
 const boardError = error => /permission|denied/i.test(error.message || '') ? 'No pudimos acceder a los tableros. Publica las reglas actualizadas de database.rules.json en Firebase.' : error.message || 'No fue posible completar la acción. Inténtalo de nuevo.';
 function roomError(error = '') { const target = $('#board-room-error'); target.textContent = typeof error === 'string' ? error : boardError(error); target.hidden = !target.textContent; }
 async function perform(button, action) { if (button.disabled) return; button.disabled = true; try { await action(); } catch(error) { roomError(error); } finally { button.disabled = false; updateRoom(); } }
+// Cleanup runs while the board directory is open, and on the next visit.
+// Rules independently deny new content access/writes after 45 minutes.
+setInterval(()=>{if(visible && session){renderCatalog();session.cleanExpired(items);}},15000);
 function subscribeDirectory() {
   if (directoryStop) return;
-  directoryStop = onValue(ref(database,`boardDirectory/${profile.university}`), snapshot => {
+  const stopClock=onValue(ref(database,'.info/serverTimeOffset'),snap=>{if(session)session.clockOffset=snap.val()||0;});
+  const stopDirectory = onValue(ref(database,`boardDirectory/${profile.university}`), snapshot => {
     items = Object.entries(snapshot.val() || {}).map(([id,b]) => ({...b,id}));
     if(session?.meta && !items.some(b=>b.id===session.meta.id)){session.removed=true;session.present=false;session.error='Este tablero se eliminó. Vuelve a la lista para continuar.';session.state={...session.state,strokes:{},texts:{},live:{},highlights:{},messages:{}};updateRoom();}
     loaded = true; directoryError = ''; renderCatalog();
+    session.cleanExpired(items);
   }, error => { directoryError = boardError(error); loaded = true; renderCatalog(); });
+  directoryStop=()=>{stopDirectory();stopClock();};
 }
 function renderCatalog() {
   if (!visible) return;

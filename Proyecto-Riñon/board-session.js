@@ -1,5 +1,5 @@
-import {auth, database, functions, withTimeout} from './firebase-client.js';
-import {httpsCallable, ref, get, set, remove, push, onValue, query, limitToLast, runTransaction, onDisconnect, serverTimestamp} from './vendor/firebase-sdk.js';
+import {auth, database, withTimeout} from './firebase-client.js';
+import {ref, get, set, update, remove, push, onValue, query, limitToLast, runTransaction, onDisconnect, serverTimestamp} from './vendor/firebase-sdk.js';
 import {SLOT_KEYS, rgb, BOARD_TTL} from './board-utils.js';
 
 export class BoardSession {
@@ -17,17 +17,17 @@ export class BoardSession {
   async create(title, course) {
     title = title.trim(); course = course.trim();
     if (title.length < 2 || title.length > 100 || course.length < 2 || course.length > 100) throw new Error('Escribe un título y una clase o materia, entre 2 y 100 caracteres.');
-    if(this.profile.requestedRole==='student') return (await withTimeout(httpsCallable(functions,'createStudentBoard')({title,course}))).data;
     const target = push(ref(database, `boardDirectory/${this.profile.university}`));
     const meta = {title, course, kind: this.profile.requestedRole, ownerUid: this.uid, ownerName: this.profile.displayName, createdAt: serverTimestamp()};
     await withTimeout(set(target, meta));
-    return {...meta, id: target.key, createdAt: Date.now()};
+    const saved = (await withTimeout(get(target))).val();
+    return {...saved, id: target.key};
   }
   async join(meta) {
     await this.leave();
     this.meta = meta;
     this.unsubscribers.push(onValue(ref(database,'.info/serverTimeOffset'),snap=>{this.clockOffset=snap.val()||0;}));
-    this.expiryTimer=setInterval(()=>{if(this.expired){this.present=false;this.error='Este tablero alcanzó sus 45 minutos y ha caducado.';this.notify();}},1000); const generation = ++this.generation;
+    this.expiryTimer=setInterval(()=>{if(this.expired){this.present=false;this.error='Este tablero alcanzó sus 45 minutos y ha caducado.';this.state={participants:{},strokes:{},messages:{},permissions:{},hands:{},live:{},texts:{},highlights:{}};this.notify();}},1000); const generation = ++this.generation;
     this.connectionId = push(ref(database)).key;
     this.removed=false;this.error = ''; this.present = false; this.connecting = false; this.notify();
     this.unsubscribers.push(onValue(ref(database, '.info/connected'), snapshot => {
@@ -75,7 +75,7 @@ export class BoardSession {
     for (const stop of this.roomSubscriptions || []) stop();
     this.roomSubscriptions = [];
     const listen = (target, assign) => this.roomSubscriptions.push(onValue(target, snapshot => {
-      if (generation !== this.generation) return;
+      if (generation !== this.generation || this.expired) return;
       assign(snapshot.val() || {}); this.notify();
     }, error => { if (generation === this.generation) { this.error = 'No pudimos sincronizar el tablero. Revisa la conexión y las reglas de Firebase.'; this.present = false; this.notify(); } }));
     const branch = this.meta.kind === 'student' ? 'slots' : 'participants';
@@ -122,7 +122,28 @@ export class BoardSession {
   }
   async deleteBoard(meta=this.meta) {
     if(!meta || meta.kind!=='student' || meta.ownerUid!==this.uid)throw new Error('Solo el creador puede eliminar este grupo.');
-    await withTimeout(httpsCallable(functions,'deleteStudentBoard')({id:meta.id}));
+    await this.removeStudentBoard(meta);
+  }
+  async removeStudentBoard(meta) {
+    // One atomic update removes metadata AND all shared content. Rules authorize
+    // the owner at any time, or another verified campus user after server expiry.
+    const university=this.profile.university;
+    await withTimeout(update(ref(database), {
+      [`boardDirectory/${university}/${meta.id}`]:null,
+      [`boardData/${university}/${meta.id}`]:null
+    }));
+  }
+  async cleanExpired(boards) {
+    if(this.cleaning)return;
+    this.cleaning=true;
+    try {
+      for(const meta of boards.filter(b=>b.kind==='student' && this.serverNow>=b.createdAt+BOARD_TTL)) {
+        try {await this.removeStudentBoard(meta);} catch(error) {
+          // A clock estimate never authorizes deletion: Firebase rules use now.
+          console.warn('No se pudo limpiar un tablero vencido:',error.code||'connection');
+        }
+      }
+    } finally {this.cleaning=false;}
   }
   undo() {
     const last = Object.entries(this.state.strokes).reverse().find(([,s]) => s.authorUid === this.uid);

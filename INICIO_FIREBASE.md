@@ -1,17 +1,14 @@
 # Risio · Configuración, seguridad y tableros
 
-## Cambios de esta entrega
+## Cambios de esta entrega Spark
 
-- La configuración web de Firebase ya no está incrustada en `firebase-client.js`.
-- `.env.local` y los archivos generados de configuración se excluyen de Git. El ZIP no contiene tu configuración de producción.
-- El servidor local bloquea archivos de entorno, pruebas, dependencias y código de servidor. `build:web` prepara únicamente los archivos que debe recibir un navegador.
-- Las cuentas mantienen inicio, registro UPB, semestre para estudiantes, verificación de correo, recuperación y notas personales privadas.
-- Los tableros estudiantiles admiten cinco personas simultáneas, incluido el creador. El creador puede borrarlos desde la tarjeta o desde el lienzo, con confirmación. El borrado incluye textos, trazos, chat, permisos y presencia.
-- Los grupos estudiantiles caducan a los **45 minutos desde su creación**. Si quedan vacíos por **2 minutos**, también se eliminan. Las clases docentes no tienen esta caducidad.
-- Colores personalizados, grosor de 1 a 30 con slider, texto y resaltador en ambos tipos. El resaltador puede dibujar sobre el contenido o activar/desactivar el resaltado de una caja de texto al hacer clic en ella. Cada persona edita sus propias cajas de texto; todos los que tienen permiso pueden resaltarlas.
-- En clases docentes el propietario usa azul fijo. Los demás no pueden utilizar colores cuyo componente azul sea mayor que el rojo y el verde. Esta restricción se valida en el servidor, además de la interfaz. En grupos estudiantiles están disponibles todos los colores.
-- El dibujo comparte avances aproximadamente cada 80 ms y guarda el trazo al terminar. Su fluidez depende de la conexión. Las vistas previas de trazos se limpian al terminar, cancelar o desconectarse. Los textos se sincronizan al guardar la caja, no por pulsación de tecla.
-- Las manos levantadas aparecen para el profesor en una franja destacada sobre el lienzo con **Dar permiso para anotar**, además de la lista de participantes.
+- Registro, verificación, notas privadas y tableros conservados.
+- Creación y borrado directo en Realtime Database, sin funciones de pago.
+- Cinco personas simultáneas por grupo, incluyendo al creador.
+- Vencimiento de 45 minutos con reloj de servidor y reglas; limpieza al abrir o mantener abierta la sección Tableros.
+- Colores, grosor, texto, resaltador, chat, manos y permisos conservados.
+- Azul reservado al profesor en clases docentes.
+- `.env.local` sigue siendo privado y no se incluye en el ZIP.
 
 ## 1. Conexión local sin publicar la configuración en Git
 
@@ -23,36 +20,21 @@
 
 Se requiere Node 20.12 o posterior para leer el archivo de entorno local; se recomienda Node 22 para desarrollo y funciones. El SDK del navegador viene compilado: no hace falta reinstalarlo para ejecutar el visor.
 
-## 2. Activar borrado automático y creación de grupos
+## 2. Versión Spark: tableros sin Cloud Functions
 
-El código del servidor está en `functions/`. Usa Firebase Admin únicamente dentro del servidor y la identidad del entorno de Google; no contiene archivos de cuenta de servicio.
+No se necesita Functions, Scheduler, Storage ni el plan Blaze para los tableros de esta versión.
 
-**Esta etapa requiere plan Blaze para desplegar Cloud Functions y Cloud Scheduler.** No se ha activado facturación ni se ha desplegado nada en tu proyecto real desde esta entrega.
+1. Configura `.env.local` e inicia con `npm start` como se indica arriba.
+2. Firebase Console → Realtime Database → Reglas: reemplaza las reglas completas por el archivo `database.rules.json` de ESTA versión y pulsa Publicar.
+3. Recarga Risio e inicia sesión con correo verificado. Crea tu grupo desde Tableros.
 
-Desde la raíz del proyecto:
+Los grupos se crean directamente con fecha de servidor. El propietario puede borrarlos con confirmación. Las reglas mantienen cinco cupos, universidad y permisos; nadie puede cambiar la fecha ni extender los 45 minutos.
 
-```bash
-npm install
-npm --prefix functions ci
-npx firebase login
-npx firebase use --add
-npx firebase deploy --only database,functions
-```
+**Caducidad y borrado son diferentes:** las reglas evalúan el reloj de Firebase en cada operación y deniegan nuevas lecturas del contenido, entradas y escrituras al vencer. La interfaz oculta los vencidos y vacía el lienzo de la sesión al alcanzar el plazo; las copias ya descargadas no pueden revocarse. Una sesión con Tableros abierto revisa cada 15 segundos y elimina metadatos y contenido con una actualización atómica. Si todos cierran la app, el borrado físico ocurre cuando alguien verificado de la misma universidad vuelve a abrir Tableros con conexión. El grupo permanece inaccesible aunque aún esté almacenado. No se promete una tarea programada sin clientes.
 
-Selecciona tu proyecto existente cuando lo solicite Firebase. No selecciones `demo-risio`, que pertenece solo a las pruebas locales. Las funciones están en `us-central1`; si cambias la región, cambia también `getFunctions` en el cliente y las regiones de los disparadores. El disparador de Realtime Database debe desplegarse en una región compatible con la instancia de tu base.
+En esta versión se elimina la caducidad anticipada de dos minutos vacíos: Spark no proporciona aquí un proceso de servidor que mida y limpie esa inactividad. La presencia sí se libera con `onDisconnect` al detectar la desconexión. Las clases docentes se conservan.
 
-| Función | Trabajo |
-| --- | --- |
-| `createStudentBoard` | Comprueba correo verificado, perfil UPB y rol Estudiante; crea título, materia y tiempos con reloj de servidor |
-| `deleteStudentBoard` | Comprueba que la persona autenticada creó el grupo y elimina todos sus datos |
-| `trackStudentPresence` | Actualiza desde servidor cuándo empieza o termina un intervalo sin participantes |
-| `cleanStudentBoards` | Cada minuto elimina grupos vencidos o vacíos durante dos minutos |
-
-Las reglas impiden que el navegador extienda la duración o modifique el reloj de inactividad. También impiden crear un grupo estudiantil saltándose la función. **Hasta desplegar las funciones, las clases docentes siguen usando su creación directa, pero los grupos estudiantiles no podrán crearse ni borrarse.** La interfaz no sustituye el borrado del servidor.
-
-El acceso al contenido de un grupo vence a los 45 minutos incluso si se manipula el reloj local. El borrado físico se ejecuta en el siguiente barrido de cada minuto y puede demorarse más si hay un fallo del servicio. La inactividad se cuenta desde que Firebase registra que no quedan participantes; detectar una conexión perdida puede llevar tiempo. No se depende de que algún navegador permanezca abierto.
-
-El proceso marca el grupo como en eliminación antes de quitar sus datos para impedir nuevas entradas durante la limpieza. Los borrados y reintentos son idempotentes. Los grupos antiguos también se limpian según su fecha de creación, mientras las clases docentes se conservan.
+La distribución Spark no incluye `functions/` ni sus pruebas. No ejecutes comandos de despliegue de funciones. Si prefieres publicar reglas por CLI: `npx firebase deploy --only database --project TU_PROYECTO`.
 
 ## 3. Publicación estática y GitHub
 
@@ -85,7 +67,7 @@ No se encontraron claves privadas de servidor, tokens GitHub ni cuentas de servi
 - `annotations/UID/RECURSO`: trazos privados de modelos, PDFs, imágenes y videos. Requiere cuenta con correo verificado. La cola local por UID conserva pendientes; espera al indicador de sincronización antes de salir.
 - `boardDirectory/UNIVERSIDAD/ID`: título, clase/materia, creador y fecha. Solo se lista desde cuentas verificadas de esa universidad.
 - `boardData/UNIVERSIDAD/ID`: participantes/cupos, trazos, vistas previas en vivo, textos, resaltados, mensajes, manos y permisos. El contenido requiere participar; las listas de presencia pueden verse desde el catálogo de la misma universidad.
-- `boardData/UNIVERSIDAD/ID/_lifecycle`: reloj y estado de eliminación; solo escribe el servidor.
+- `_lifecycle`: ruta heredada bloqueada; esta versión usa únicamente la fecha inmutable de `boardDirectory` para caducar.
 - `teacherApprovals`: ruta heredada reservada; no se exige aprobación para crear un tablero de profesor.
 
 En las clases, el profesor creador anota por defecto y concede o retira permiso a otros participantes. Los permisos concedidos se mantienen hasta retirarlos. Los grupos de estudiantes tienen cinco reservas simultáneas validadas con transacciones; cerrar o salir libera la reserva al registrarse la desconexión. El chat conserva los mensajes; se muestran los últimos 100. No se han añadido importaciones de imágenes, PDF o documentos al tablero en esta entrega.
@@ -99,9 +81,7 @@ npm run test:firebase
 npm run test:boards
 ```
 
-Las pruebas de Firebase necesitan Java 17 o posterior con la CLI incluida y usan únicamente `demo-risio`. `test:boards` necesita instalar previamente las dependencias de `functions/`. Comprueba permisos, cinco cupos simultáneos, expiración, borrado íntegro, texto, color docente, grosor y trazos en vivo. Prueba los manejadores reales de las funciones contra emuladores de Auth/Database; el transporte local de prueba no sustituye verificar el despliegue real.
-
-Para la prueba visual, con Playwright/Chromium disponibles: `RISIO_BOARDS_BROWSER_TEST=1 npm run test:boards`. `RISIO_CHROMIUM_PATH` permite indicar un Chromium instalado. Los recorridos incluyen sincronización de profesor y estudiante, manos destacadas, texto, resaltado, borrado y móvil. No se crean usuarios ni datos de pruebas en producción. No se ha hecho una prueba de carga masiva.
+Las pruebas de Firebase necesitan Java 17 o posterior y `npm install`; usan solo `demo-risio`. `test:boards` comprueba creación directa, universidad, cinco cupos simultáneos, expiración, borrado por propietario, limpieza por otro usuario tras vencer, texto, color docente, grosor y trazos. No llama funciones ni crea datos en producción.
 
 ## Documentación oficial
 

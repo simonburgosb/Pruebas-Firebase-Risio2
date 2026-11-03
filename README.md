@@ -16,7 +16,7 @@ Abre **Tableros** en el inicio o junto a Mi cuenta. Profesores y estudiantes cre
 
 ## Seguridad y nuevos tableros
 
-La configuración de Firebase se proporciona desde `.env.local` o la variable `RISIO_FIREBASE_CONFIG`; el ZIP no contiene la configuración de producción. Consulta `INICIO_FIREBASE.md` antes de ejecutar. Los grupos estudiantiles ahora usan Cloud Functions para creación, borrado por el creador y eliminación automática (45 minutos, o dos minutos vacíos). Requiere desplegar funciones y reglas; el despliegue de funciones necesita Blaze. Las clases docentes no caducan. Incluye selector de color, slider de grosor, texto, resaltador, avances de dibujo en vivo y avisos destacados de mano levantada. En clases, el azul está reservado al profesor.
+La configuración de Firebase se proporciona desde `.env.local` o la variable `RISIO_FIREBASE_CONFIG`; el ZIP no contiene la configuración de producción. Consulta `INICIO_FIREBASE.md` antes de ejecutar. Esta versión Spark crea y borra grupos directamente en Realtime Database, sin Cloud Functions ni Blaze. Las reglas bloquean acceso y escritura al cumplir 45 minutos; la app borra los datos vencidos mientras Tableros está abierto o en la siguiente visita. No hay borrado físico programado si todos están desconectados, ni vencimiento anticipado de dos minutos por inactividad. Las clases docentes no caducan. Incluye selector de color, slider de grosor, texto, resaltador, avances de dibujo en vivo y avisos destacados de mano levantada. En clases, el azul está reservado al profesor.
 
 ## Ejecutar en tu computador
 

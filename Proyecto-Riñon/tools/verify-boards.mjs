@@ -17,8 +17,8 @@ try {
   for(const uid of people) db[uid] = user(uid);
   // No administrator approval: both registered profiles create directly.
   await assertSucceeds(db.teacher.ref('boardDirectory/UPB/class').set(directory('teacher','teacher','Clase de riñón')));
-  await assertFails(db.student1.ref('boardDirectory/UPB/group').set(directory('student1')));
-  await env.withSecurityRulesDisabled(async ctx=>{await ctx.database().ref('boardDirectory/UPB/group').set(directory('student1'));await ctx.database().ref('boardData/UPB/group/_lifecycle').set({createdAt:Date.now()-100,emptySince:Date.now(),deleting:false});});
+  await assertSucceeds(db.student1.ref('boardDirectory/UPB/group').set({...directory('student1'),createdAt:{'.sv':'timestamp'}}));
+  await assertFails(db.student1.ref('boardDirectory/UPB/old').set({...directory('student1'),createdAt:Date.now()-20000}));
   await assertFails(db.student2.ref('boardDirectory/UPB/forged').set(directory('student2','teacher')));
   await assertFails(db.student2.ref('boardDirectory/UPB/forged-owner').set(directory('student1')));
   await assertFails(user('student2',false).ref('boardDirectory/UPB/unchecked').set(directory('student2')));
@@ -100,8 +100,28 @@ try {
   await assertFails(db[accepted[1].uid].ref('boardData/UPB/group/strokes/expired').set(stroke(accepted[1].uid)));
   await assertFails(db[outsider].ref(`boardData/UPB/group/slots/${winner.slot}`).set(presence(outsider)));
   await assertFails(db.student1.ref('boardData/UPB/group/_lifecycle').set({emptySince:Date.now()}));
+  await assertFails(db[accepted[1].uid].ref('boardData/UPB/group/strokes').get());
+  await assertFails(db.student1.ref('boardDirectory/UPB/group/createdAt').set({'.sv':'timestamp'}));
+  const deletion=id=>({[`boardDirectory/UPB/${id}`]:null,[`boardData/UPB/${id}`]:null});
+  await assertFails(db.student2.ref().update(deletion('class')));
+  await assertSucceeds(db.student1.ref('boardDirectory/UPB/owned').set({...directory('student1'),createdAt:{'.sv':'timestamp'}}));
+  await assertSucceeds(db.student1.ref('boardData/UPB/owned/slots/s0').set(presence('student1')));
+  await assertSucceeds(db.student1.ref('boardData/UPB/owned/strokes/a').set(stroke('student1')));
+  await assertFails(db.student2.ref().update(deletion('owned')));
+  await assertFails(db.other.ref().update(deletion('group')));
+  await assertFails(user('student2',false).ref().update(deletion('group')));
+  await assertSucceeds(db.student1.ref().update(deletion('owned')));
+  await assertSucceeds(db.student2.ref().update(deletion('group')));
+  await env.withSecurityRulesDisabled(async ctx=>{
+    const snapshot=await ctx.database().ref().get();
+    for(const id of ['owned','group']){
+      assert.equal(snapshot.child('boardDirectory/UPB/'+id).exists(),false);
+      assert.equal(snapshot.child('boardData/UPB/'+id).exists(),false);
+    }
+  });
+  // A stale cleanup attempt cannot remove a newly created active group.
+  await assertSucceeds(db.student1.ref('boardDirectory/UPB/group').set({...directory('student1'),createdAt:{'.sv':'timestamp'}}));
+  await assertFails(db.student2.ref().update(deletion('group')));
   // Only this request's emulated records were used.
-  console.log('OK: creación directa profesor/estudiante, aislamiento universitario, cinco cupos en carrera, liberación, persistencia, clase con ocho participantes, chat, mano, permisos y revocación.');
-  const backend=await import('./board-backend-test.mjs');
-  try {await backend.testLifecycle();if(process.env.RISIO_BOARDS_BROWSER_TEST){const stop=await backend.startCallableHarness();try{await import('./verify-boards-browser.mjs');}finally{await stop();}}} finally {await backend.closeBackend();}
+  console.log('OK: creación directa profesor/estudiante, aislamiento universitario, cinco cupos en carrera, liberación, persistencia, clase con ocho participantes, chat, mano, permisos, revocación, bloqueo al caducar, borrado por propietario y limpieza atómica de vencidos sin Functions.');
 } finally { await env.cleanup(); }
