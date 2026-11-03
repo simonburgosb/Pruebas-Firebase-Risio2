@@ -9,7 +9,18 @@ export function parseStroke(stroke) {
   try {
     const points = JSON.parse(stroke.pointsJson);
     if (!Array.isArray(points) || points.length < 1 || points.length > 2000 || !points.every(p => Array.isArray(p) && p.length === 2 && p.every(n => Number.isFinite(n) && n >= 0 && n <= 1))) return null;
-    if (!['#8c2626','#302b28','#23756a','#285c9b'].includes(stroke.color) || !Number.isFinite(stroke.width) || stroke.width < 1 || stroke.width > 12) return null;
-    return {...stroke, points};
+    if (!Number.isFinite(stroke.width) || stroke.width < 1 || stroke.width > 120) return null;
+    return {...stroke, color:inkColor(stroke), points};
   } catch { return null; }
 }
+export const TEACHER_BLUE = '#285c9b';
+export const BOARD_TTL = 45*60*1000;
+export function rgb(color) {
+  if(!/^#[0-9a-f]{6}$/i.test(color)) throw new Error('Selecciona un color válido.');
+  return {red:parseInt(color.slice(1,3),16),green:parseInt(color.slice(3,5),16),blue:parseInt(color.slice(5,7),16)};
+}
+export function inkColor(value) {
+  if(['red','green','blue'].every(k=>Number.isInteger(value[k]) && value[k]>=0 && value[k]<=255))return '#'+['red','green','blue'].map(k=>value[k].toString(16).padStart(2,'0')).join('');
+  return /^#[0-9a-f]{6}$/i.test(value.color||'')?value.color:'#302b28';
+}
+export function isBlue(color) {const {red,green,blue}=rgb(color);return blue>red && blue>green;}

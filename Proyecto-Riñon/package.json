@@ -9,7 +9,10 @@
     "build:firebase": "node tools/build-firebase.mjs",
     "test:accounts": "node --test tools/verify-account-notes.mjs",
     "test:firebase": "firebase emulators:exec --project demo-risio --only auth,database,storage \"node tools/verify-firebase.mjs\"",
-    "test:boards": "firebase emulators:exec --project demo-risio --only auth,database \"node tools/verify-boards.mjs\""
+    "test:boards": "firebase emulators:exec --project demo-risio --only auth,database \"node tools/verify-boards.mjs\"",
+    "build:config": "node tools/build-config.mjs",
+    "test:security": "node tools/verify-security.mjs",
+    "build:web": "node tools/build-web.mjs"
   },
   "engines": {
     "node": ">=20"

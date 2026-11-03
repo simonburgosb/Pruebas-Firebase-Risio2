@@ -1,20 +1,23 @@
-import {auth, database, withTimeout} from './firebase-client.js';
-import {ref, get, set, remove, push, onValue, query, limitToLast, runTransaction, onDisconnect, serverTimestamp} from './vendor/firebase-sdk.js';
-import {SLOT_KEYS} from './board-utils.js';
+import {auth, database, functions, withTimeout} from './firebase-client.js';
+import {httpsCallable, ref, get, set, remove, push, onValue, query, limitToLast, runTransaction, onDisconnect, serverTimestamp} from './vendor/firebase-sdk.js';
+import {SLOT_KEYS, rgb, BOARD_TTL} from './board-utils.js';
 
 export class BoardSession {
   constructor(profile, changed) {
     this.profile = profile; this.changed = changed; this.uid = auth.currentUser.uid;
     this.meta = null; this.unsubscribers = []; this.pending = new Set(); this.online = false;
-    this.generation = 0; this.state = {participants: {}, strokes: {}, messages: {}, permissions: {}, hands: {}};
+    this.generation = 0; this.state = {participants: {}, strokes: {}, messages: {}, permissions: {}, hands: {}, live: {}, texts: {}, highlights: {}};
   }
   path(suffix = '') { return `boardData/${this.profile.university}/${this.meta.id}${suffix ? '/' + suffix : ''}`; }
   get owner() { return this.meta?.ownerUid === this.uid; }
-  get canDraw() { return Boolean(this.online && this.present && (this.meta?.kind === 'student' || this.owner || this.state.permissions[this.uid])); }
+  get canDraw() { return Boolean(!this.removed && !this.expired && this.online && this.present && (this.meta?.kind === 'student' || this.owner || this.state.permissions[this.uid])); }
+  get expired() {return this.meta?.kind==='student' && this.serverNow>=this.meta.createdAt+BOARD_TTL;}
+  get serverNow() {return Date.now()+(this.clockOffset||0);}
   notify() { this.changed(this); }
   async create(title, course) {
     title = title.trim(); course = course.trim();
     if (title.length < 2 || title.length > 100 || course.length < 2 || course.length > 100) throw new Error('Escribe un título y una clase o materia, entre 2 y 100 caracteres.');
+    if(this.profile.requestedRole==='student') return (await withTimeout(httpsCallable(functions,'createStudentBoard')({title,course}))).data;
     const target = push(ref(database, `boardDirectory/${this.profile.university}`));
     const meta = {title, course, kind: this.profile.requestedRole, ownerUid: this.uid, ownerName: this.profile.displayName, createdAt: serverTimestamp()};
     await withTimeout(set(target, meta));
@@ -22,9 +25,11 @@ export class BoardSession {
   }
   async join(meta) {
     await this.leave();
-    this.meta = meta; const generation = ++this.generation;
+    this.meta = meta;
+    this.unsubscribers.push(onValue(ref(database,'.info/serverTimeOffset'),snap=>{this.clockOffset=snap.val()||0;}));
+    this.expiryTimer=setInterval(()=>{if(this.expired){this.present=false;this.error='Este tablero alcanzó sus 45 minutos y ha caducado.';this.notify();}},1000); const generation = ++this.generation;
     this.connectionId = push(ref(database)).key;
-    this.error = ''; this.present = false; this.connecting = false; this.notify();
+    this.removed=false;this.error = ''; this.present = false; this.connecting = false; this.notify();
     this.unsubscribers.push(onValue(ref(database, '.info/connected'), snapshot => {
       this.online = snapshot.val() === true; this.notify();
       if (this.online && !this.connecting) {
@@ -82,40 +87,68 @@ export class BoardSession {
     listen(query(ref(database,this.path('messages')), limitToLast(100)), value => this.state.messages = value);
     listen(ref(database,this.path('permissions')), value => this.state.permissions = value);
     listen(ref(database,this.path('hands')), value => this.state.hands = value);
+    for(const key of ['live','texts','highlights'])listen(ref(database,this.path(key)),value=>this.state[key]=value);
+    this.liveRef=ref(database,this.path(`live/${this.uid}`));
+    onDisconnect(this.liveRef).remove().catch(()=>{});
   }
-  async save(operation) {
+  async save(action) {
     if (!this.online || !this.present) throw new Error('Espera a recuperar la conexión para continuar.');
+    const operation=action();
     this.pending.add(operation); this.notify();
     try { return await withTimeout(operation); }
     finally { this.pending.delete(operation); this.notify(); }
   }
-  stroke(points, color, width) {
+  stroke(points, color, width, tool='pen') {
     if (!this.canDraw) throw new Error('Necesitas permiso para anotar.');
-    return this.save(set(push(ref(database,this.path('strokes'))), {authorUid:this.uid, pointsJson:JSON.stringify(points), color, width, createdAt:serverTimestamp()}));
+    return this.save(()=>set(push(ref(database,this.path('strokes'))), {authorUid:this.uid, pointsJson:JSON.stringify(points), ...rgb(color), width, tool, createdAt:serverTimestamp()}));
+  }
+  async liveStroke(points,color,width,tool='pen') {
+    if(!this.canDraw)return;
+    if(this.liveBusy){this.liveQueued={points:[...points],color,width,tool};return;}
+    this.liveBusy=true;
+    try {await withTimeout(set(this.liveRef,{authorUid:this.uid,pointsJson:JSON.stringify(points),...rgb(color),width,tool,createdAt:serverTimestamp()}), 'No se pudo sincronizar el trazo en vivo.', 8000);}
+    finally {this.liveBusy=false;const queued=this.liveQueued;this.liveQueued=null;if(queued)await this.liveStroke(queued.points,queued.color,queued.width,queued.tool);}
+  }
+  async finishLive() {this.liveQueued=null;while(this.liveBusy)await new Promise(r=>setTimeout(r,20));if(this.liveRef && this.online)await remove(this.liveRef);}
+  async text(value,id) {
+    if(!this.canDraw)throw new Error('Necesitas permiso para anotar.');
+    const target=id?ref(database,this.path(`texts/${id}`)):push(ref(database,this.path('texts')));
+    return this.save(()=>set(target,{authorUid:this.uid,text:value.text,x:value.x,y:value.y,fontSize:value.fontSize,...rgb(value.color),updatedAt:serverTimestamp()}));
+  }
+  highlightText(id,color) {
+    if(!this.canDraw)throw new Error('Necesitas permiso para anotar.');
+    const value=this.state.highlights[id]?.[this.uid]?null:rgb(color);
+    return this.save(()=>set(ref(database,this.path(`highlights/${id}/${this.uid}`)),value));
+  }
+  async deleteBoard(meta=this.meta) {
+    if(!meta || meta.kind!=='student' || meta.ownerUid!==this.uid)throw new Error('Solo el creador puede eliminar este grupo.');
+    await withTimeout(httpsCallable(functions,'deleteStudentBoard')({id:meta.id}));
   }
   undo() {
     const last = Object.entries(this.state.strokes).reverse().find(([,s]) => s.authorUid === this.uid);
-    return last ? this.save(remove(ref(database,this.path(`strokes/${last[0]}`)))) : Promise.resolve();
+    return last ? this.save(()=>remove(ref(database,this.path(`strokes/${last[0]}`)))) : Promise.resolve();
   }
-  clear() { if (!this.owner) throw new Error('Solo quien creó el tablero puede vaciarlo.'); return this.save(remove(ref(database,this.path('strokes')))); }
+  clear() { if (!this.owner) throw new Error('Solo quien creó el tablero puede vaciarlo.'); return this.save(()=>Promise.all(['strokes','texts','highlights','live'].map(key=>remove(ref(database,this.path(key)))))); }
   message(text) {
     text = text.trim(); if (!text || text.length > 1000) throw new Error('Escribe un mensaje de hasta 1000 caracteres.');
-    return this.save(set(push(ref(database,this.path('messages'))), {uid:this.uid, authorName:this.profile.displayName, text, createdAt:serverTimestamp()}));
+    return this.save(()=>set(push(ref(database,this.path('messages'))), {uid:this.uid, authorName:this.profile.displayName, text, createdAt:serverTimestamp()}));
   }
-  hand() { return this.save(set(ref(database,this.path(`hands/${this.uid}`)), this.state.hands[this.uid] ? null : true)); }
-  async permission(uid) {
+  hand() { return this.save(()=>set(ref(database,this.path(`hands/${this.uid}`)), this.state.hands[this.uid] ? null : true)); }
+  async permission(uid,grant=false) {
     if (!this.owner || this.meta.kind !== 'teacher') throw new Error('Solo el profesor de esta clase puede cambiar permisos.');
-    await this.save(set(ref(database,this.path(`permissions/${uid}`)), this.state.permissions[uid] ? null : true));
-    if (this.state.hands[uid]) await this.save(remove(ref(database,this.path(`hands/${uid}`))));
+    await this.save(()=>set(ref(database,this.path(`permissions/${uid}`)), !grant && this.state.permissions[uid] ? null : true));
+    if (this.state.hands[uid]) await this.save(()=>remove(ref(database,this.path(`hands/${uid}`))));
   }
   async leave() {
     if (this.pending.size) await withTimeout(Promise.all([...this.pending]), 'Todavía hay cambios por guardar. Recupera la conexión antes de salir.', 12000);
+    clearInterval(this.expiryTimer);
+    await this.finishLive().catch(()=>{});
     ++this.generation;
     for (const stop of [...this.unsubscribers, ...(this.roomSubscriptions || [])]) stop();
     this.unsubscribers = []; this.roomSubscriptions = [];
     // Cancel first, then remove: a stale disconnect must not remove a later reservation.
-    if (this.presenceRef && this.online) { await withTimeout(this.disconnect.cancel()); await withTimeout(remove(this.presenceRef)); }
+    if (this.presenceRef && this.online && !this.removed) { await withTimeout(this.disconnect.cancel()); await withTimeout(remove(this.presenceRef)); }
     this.presenceRef = null; this.disconnect = null; this.meta = null; this.present = false;
-    this.state = {participants:{}, strokes:{}, messages:{}, permissions:{}, hands:{}};
+    this.state = {participants:{}, strokes:{}, messages:{}, permissions:{}, hands:{}, live:{}, texts:{}, highlights:{}};
   }
 }

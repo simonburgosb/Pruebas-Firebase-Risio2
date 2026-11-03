@@ -1,4 +1,6 @@
 import http from 'node:http';
+import {publicConfig} from './tools/config.mjs';
+const config=publicConfig();
 import {serveLibraryPdf} from './library-pdf-proxy.mjs';
 import path from 'node:path';
 import fs from 'node:fs';
@@ -7,6 +9,16 @@ const root=path.dirname(fileURLToPath(import.meta.url));const port=Number(proces
 const types={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'text/javascript; charset=utf-8','.mjs':'text/javascript; charset=utf-8','.wasm':'application/wasm','.json':'application/json','.glb':'model/gltf-binary','.txt':'text/plain','.svg':'image/svg+xml','.png':'image/png','.pdf':'application/pdf'};
 const server=http.createServer((req,res)=>{
   const pathname=new URL(req.url,'http://localhost').pathname;
+  res.setHeader('X-Content-Type-Options','nosniff');
+  res.setHeader('Referrer-Policy','strict-origin-when-cross-origin');
+  if(pathname==='/firebase-config.json') {
+    res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});
+    res.end(JSON.stringify(config));return;
+  }
+  let decoded; try {decoded=decodeURIComponent(pathname);} catch {res.writeHead(400);res.end();return;}
+  if(decoded.split('/').some(part=>part.startsWith('.') || ['tools','node_modules','functions'].includes(part)) || /(?:server|library-pdf-proxy)\.mjs$/.test(decoded)) {
+    res.writeHead(404);res.end('Archivo no encontrado');return;
+  }
   if(pathname==='/risio-runtime.json') {
     res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});
     res.end(JSON.stringify({emulators:process.env.RISIO_EMULATORS==='1'}));return;

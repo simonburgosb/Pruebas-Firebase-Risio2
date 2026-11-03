@@ -1,117 +1,112 @@
-# Risio · Cuentas, anotaciones y tableros compartidos
+# Risio · Configuración, seguridad y tableros
 
-Esta entrega añade Firebase al proyecto existente. Conserva los modelos, las simulaciones, la Biblioteca, los créditos de MEDIDED y el botón de captura PNG.
+## Cambios de esta entrega
 
-## Qué está implementado
+- La configuración web de Firebase ya no está incrustada en `firebase-client.js`.
+- `.env.local` y los archivos generados de configuración se excluyen de Git. El ZIP no contiene tu configuración de producción.
+- El servidor local bloquea archivos de entorno, pruebas, dependencias y código de servidor. `build:web` prepara únicamente los archivos que debe recibir un navegador.
+- Las cuentas mantienen inicio, registro UPB, semestre para estudiantes, verificación de correo, recuperación y notas personales privadas.
+- Los tableros estudiantiles admiten cinco personas simultáneas, incluido el creador. El creador puede borrarlos desde la tarjeta o desde el lienzo, con confirmación. El borrado incluye textos, trazos, chat, permisos y presencia.
+- Los grupos estudiantiles caducan a los **45 minutos desde su creación**. Si quedan vacíos por **2 minutos**, también se eliminan. Las clases docentes no tienen esta caducidad.
+- Colores personalizados, grosor de 1 a 30 con slider, texto y resaltador en ambos tipos. El resaltador puede dibujar sobre el contenido o activar/desactivar el resaltado de una caja de texto al hacer clic en ella. Cada persona edita sus propias cajas de texto; todos los que tienen permiso pueden resaltarlas.
+- En clases docentes el propietario usa azul fijo. Los demás no pueden utilizar colores cuyo componente azul sea mayor que el rojo y el verde. Esta restricción se valida en el servidor, además de la interfaz. En grupos estudiantiles están disponibles todos los colores.
+- El dibujo comparte avances aproximadamente cada 80 ms y guarda el trazo al terminar. Su fluidez depende de la conexión. Las vistas previas de trazos se limpian al terminar, cancelar o desconectarse. Los textos se sincronizan al guardar la caja, no por pulsación de tecla.
+- Las manos levantadas aparecen para el profesor en una franja destacada sobre el lienzo con **Dar permiso para anotar**, además de la lista de participantes.
 
-- Inicio de sesión, registro, verificación obligatoria de correo, reenvío y recuperación de contraseña.
-- Universidad: UPB. Elegir la universidad habilita Estudiante o Profesor. El semestre (1–12) aparece y se exige únicamente a estudiantes.
-- Dos perfiles, porque fueron los dos roles descritos. No se inventó un tercer perfil.
-- Al crear la cuenta no se abre la aplicación: primero se muestra Verifica tu correo. Después de abrir el enlace, se pulsa Ya verifiqué mi correo. También se puede cerrar y volver a iniciar sesión.
-- Perfil académico por UID. Si una interrupción dejó la cuenta sin perfil, se solicita completarlo después de verificar el correo.
-- Anotaciones privadas en Anatomía (por cada modelo), Glucosa (riñón y nefrona), Filtración, PDF (por documento y página), ilustraciones y videos (por clase y segundo).
-- Indicador de guardado, reintento al recuperar internet y copia local de cambios pendientes separada por UID.
-- Al volver a entrar desde otro dispositivo, los trazos se recuperan de Realtime Database. Las notas de video conservan sus momentos para poder reabrirlas.
-- Reglas de acceso para perfiles y anotaciones, y reglas privadas de Storage para la siguiente etapa.
+## 1. Conexión local sin publicar la configuración en Git
 
-Los tableros compartidos ya están incluidos: se abren desde **Tableros** en el inicio o desde el botón persistente junto a Mi cuenta. No requieren aprobación administrativa. La importación de fotos y documentos al tablero queda pendiente; esta entrega permite dibujo y chat, sin usar Storage.
+1. Copia `.env.example` como `.env.local` en la raíz `Modelo-interactivo-3D-del-rinon`.
+2. En Firebase Console → Configuración del proyecto → Tus aplicaciones → SDK web, copia los campos del objeto de configuración web. Completa el JSON de `RISIO_FIREBASE_CONFIG` en una sola línea. Debe contener `apiKey`, `authDomain`, `databaseURL`, `projectId`, `storageBucket`, `messagingSenderId` y `appId`. No incluyas cuentas de servicio ni claves privadas.
+3. Ejecuta `npm start` y abre `http://localhost:8080`. El servidor lee el archivo local y entrega al SDK solo esos campos públicos.
+4. Habilita Authentication → Correo/Contraseña y autoriza los dominios reales de publicación y los de desarrollo necesarios. Mantén la verificación de correo obligatoria.
+5. Publica TODO `database.rules.json` en Realtime Database. Si usas adjuntos privados, publica también `storage.rules`. No uses reglas de prueba abiertas.
 
-## Activación inicial en tu proyecto
+Se requiere Node 20.12 o posterior para leer el archivo de entorno local; se recomienda Node 22 para desarrollo y funciones. El SDK del navegador viene compilado: no hace falta reinstalarlo para ejecutar el visor.
 
-La configuración de `risio-6431a` ya está en `Proyecto-Riñon/firebase-client.js`. No necesitas volver a copiarla ni crear otra base de datos.
+## 2. Activar borrado automático y creación de grupos
 
-1. Abre [Firebase Console](https://console.firebase.google.com/project/risio-6431a/overview). En **Authentication → Método de acceso**, habilita **Correo electrónico/Contraseña**. No hace falta habilitar el acceso sin contraseña por enlace.
-2. En **Authentication → Configuración → Dominios autorizados**, añade `localhost`, `127.0.0.1` y el dominio donde publiques Risio, si aún no aparecen. No añadas `http://`, puertos ni rutas. Al publicar en GitHub Pages, se usa el dominio `usuario.github.io`, sin el nombre del repositorio.
-3. En **Realtime Database → Reglas**, pega TODO `database.rules.json` y pulsa **Publicar**. Debe ser la base `risio-6431a-default-rtdb`. No uses reglas abiertas de prueba.
-4. En **Authentication → Plantillas**, personaliza el nombre del remitente y las plantillas de verificación y recuperación como Risio. Esta versión usa la página de acciones que ofrece Firebase: el usuario confirma allí y vuelve a Risio. No necesita una Cloud Function para enviar esos correos.
-5. Descomprime y abre una terminal dentro de `Modelo-interactivo-3D-del-rinon`. Ejecuta `npm start` y abre `http://localhost:8080`. Crea una cuenta de prueba con un correo al que tengas acceso, abre la verificación y vuelve a Risio para continuar.
-6. Para adjuntos futuros, habilita **Storage** y publica `storage.rules` en su pestaña Reglas. Firebase actualmente exige **Blaze** para Cloud Storage. Login, perfiles y trazos usan Authentication/Realtime Database y no necesitan Storage. Esta versión no cambia el plan ni activa facturación automáticamente.
+El código del servidor está en `functions/`. Usa Firebase Admin únicamente dentro del servidor y la identidad del entorno de Google; no contiene archivos de cuenta de servicio.
 
-Estas acciones de consola no quedaron aplicadas desde esta entrega: la configuración web compartida identifica la app, pero no concede administración del proyecto. Antes de probar correos reales, realiza los pasos 1–4.
+**Esta etapa requiere plan Blaze para desplegar Cloud Functions y Cloud Scheduler.** No se ha activado facturación ni se ha desplegado nada en tu proyecto real desde esta entrega.
 
-El SDK ya viene compilado localmente en `vendor/firebase-sdk.js`: `npm start` funciona sin recompilar. Para reinstalar las dependencias de desarrollo o actualizar el bundle:
+Desde la raíz del proyecto:
 
 ```bash
 npm install
-npm run build:firebase
-npm start
+npm --prefix functions ci
+npx firebase login
+npx firebase use --add
+npx firebase deploy --only database,functions
 ```
 
-La selección de UPB identifica el perfil declarado; no comprueba matrícula ni exige un dominio de correo institucional. La verificación confirma que el correo pertenece al usuario.
+Selecciona tu proyecto existente cuando lo solicite Firebase. No selecciones `demo-risio`, que pertenece solo a las pruebas locales. Las funciones están en `us-central1`; si cambias la región, cambia también `getFunctions` en el cliente y las regiones de los disparadores. El disparador de Realtime Database debe desplegarse en una región compatible con la instancia de tu base.
 
-El proyecto mantiene su servidor estático de Node. No necesita Vite. Para instalar las dependencias actuales de desarrollo se recomienda Node 22 LTS; el SDK empaquetado y el servidor pueden ejecutarse con Node 20.
-
-## Cómo se guarda la información
-
-| Ruta en Realtime Database | Contenido | Acceso del navegador |
-| --- | --- | --- |
-| `profiles/UID` | Nombre, UPB, perfil solicitado, semestre y fechas | Solo la propia cuenta; se permite completar el perfil antes de verificar |
-| `annotations/UID/ID_DEL_RECURSO` | Recurso, trazos normalizados y fecha | Solo la propia cuenta con correo verificado y perfil UPB |
-| `teacherApprovals/UID` | Ruta reservada heredada; no controla los tableros | El propietario puede consultar su estado; ningún cliente puede escribirlo |
-
-Los trazos se guardan al terminar cada gesto, al deshacer y al borrar. Las coordenadas normalizadas permiten recuperarlos con otro tamaño de pantalla. No se suben capturas de pantalla para guardar los trazos: se guarda su estructura. Un recurso admite hasta 900 KB de datos de dibujo. El PNG de Guardar continúa descargándose al computador.
-
-El navegador mantiene una cola local `risio:notes:v1:UID`. Cuando no hay internet, los cambios quedan pendientes y se reintentan al reconectar o al volver a entrar con la misma cuenta y el mismo navegador. **Una nota pendiente aún no está disponible en otro dispositivo**: espera a ver Anotaciones sincronizadas. No se debe borrar el almacenamiento del navegador mientras haya pendientes. Si se bloquea el almacenamiento local, la interfaz lo indica. Cerrar sesión espera la sincronización para evitar pérdidas.
-
-Para editar un mismo recurso desde dos dispositivos se aplica el último guardado recibido; esta fase no fusiona trazos simultáneos. El tablero de clase requiere eventos por trazo, como se propone abajo.
-
-Las anotaciones antiguas guardadas sin cuenta no se asignan automáticamente al primer usuario que ingrese: no existe una forma segura de saber a quién pertenecen en un equipo compartido. Permanecen en sus claves anteriores del navegador. Esta actualización conserva los archivos del proyecto, pero las notas privadas por cuenta comienzan desde el registro.
-
-La apiKey de una app web Firebase forma parte de su configuración pública. La privacidad depende de las reglas y Authentication. Nunca se incluye una cuenta de servicio ni el SDK Admin en el navegador. No se activa Analytics automáticamente.
-
-## Tableros: cómo usarlos
-
-1. Inicia sesión con una cuenta verificada y abre **Tableros** en el inicio o junto a **Mi cuenta**.
-2. Hay dos secciones: **Clases de profesores** y **Grupos de estudiantes**. Cada una tiene búsqueda por título, materia o creador, filtros propios y orden por recién creados, más antiguos o título A–Z. Se muestran 12 tarjetas por sección y Ver más permite ampliar la lista.
-3. Pulsa **Crear tablero**. Escribe el título (placeholder: «Ej. Nombre de la clase o de la materia») y la clase o materia. La universidad se toma de tu perfil; el tipo de tablero se toma de tu rol. Se crea y abre directamente, sin aprobación de un administrador.
-4. En las clases docentes, el profesor creador puede anotar, buscar participantes y conceder o retirar permiso. Los demás observan, conversan por chat y levantan la mano para pedir permiso.
-5. En los grupos estudiantiles todos los participantes pueden anotar. Hay **cinco cupos simultáneos en total, incluido el creador**. Un sexto participante debe esperar; cerrar o salir libera el cupo cuando Firebase detecta la desconexión. No se reservan puestos permanentes. Una misma cuenta no puede ocupar varios cupos en el mismo grupo.
-6. Los tableros de profesores **no tienen un máximo impuesto por Risio**; siguen sujetos a los límites y al plan de Firebase. No se ha hecho una prueba de carga masiva.
-7. Los trazos y mensajes permanecen guardados después de salir. El lápiz tiene cuatro colores y tres grosores; Deshacer retira tu último trazo y el creador puede vaciar el lienzo con confirmación. Descargar PNG exporta el lienzo.
-
-**Para activar esta actualización**, vuelve a publicar TODO `database.rules.json` en Realtime Database. Las reglas de la entrega anterior no incluyen `boardDirectory` ni `boardData`. No hace falta habilitar Storage ni facturación para el dibujo y chat. No se modificó la consola de producción desde esta entrega.
-
-### Universidad y permisos
-
-El catálogo, presencia, trazos y chat se separan por universidad y las reglas comparan esa universidad con el perfil autenticado. UPB es la única habilitada hoy. Los usuarios de otra organización no pueden listar ni abrir esos tableros. La selección de universidad sigue siendo declarativa: no verifica matrícula.
-
-Elegir Profesor permite crear tableros docentes directamente, tal como se solicitó. No hay aprobación adicional ni uso de `teacherApprovals` para crear clases. El creador controla únicamente sus tableros; no puede consultar las anotaciones personales de otro usuario. Cualquier cuenta verificada de la misma universidad puede encontrar y entrar en una clase, sin invitación. Los nombres visibles y la presencia del tablero son visibles a esa universidad; los perfiles y notas privadas siguen protegidos.
-
-Los permisos para anotar se comprueban tanto en la interfaz como en las reglas. Un estudiante no puede concederse permiso en una clase ni modificar los trazos de otros. Los permisos concedidos permanecen al volver a entrar hasta que el profesor los retire. La mano levantada también permanece hasta bajarla o conceder permiso.
-
-### Datos y sincronización
-
-| Ruta | Contenido |
+| Función | Trabajo |
 | --- | --- |
-| `boardDirectory/UNIVERSIDAD/ID` | Título, materia, tipo, creador y fecha |
-| `boardData/UNIVERSIDAD/ID/slots/s0…s4` | Cinco reservas simultáneas para grupos estudiantiles |
-| `boardData/UNIVERSIDAD/ID/participants/UID` | Presencia sin cupo máximo para clases docentes |
-| `boardData/UNIVERSIDAD/ID/strokes/ID` | Un registro por trazo; permite dibujar simultáneamente |
-| `boardData/UNIVERSIDAD/ID/messages/ID` | Mensajes persistentes; se muestran los últimos 100 |
-| `boardData/UNIVERSIDAD/ID/permissions/UID` | Permiso para anotar concedido por el profesor creador |
-| `boardData/UNIVERSIDAD/ID/hands/UID` | Solicitudes de mano levantada |
+| `createStudentBoard` | Comprueba correo verificado, perfil UPB y rol Estudiante; crea título, materia y tiempos con reloj de servidor |
+| `deleteStudentBoard` | Comprueba que la persona autenticada creó el grupo y elimina todos sus datos |
+| `trackStudentPresence` | Actualiza desde servidor cuándo empieza o termina un intervalo sin participantes |
+| `cleanStudentBoards` | Cada minuto elimina grupos vencidos o vacíos durante dos minutos |
 
-Los cinco cupos se asignan mediante transacciones y se validan en el servidor; un sexto cupo no existe en las reglas. `onDisconnect` libera presencia al desconectar. Un tablero solo puede abrirse una vez por cuenta al mismo tiempo; si está abierto en otra pestaña, hay que salir allí primero. La reconexión intenta recuperar un cupo, pero puede encontrar el grupo completo.
+Las reglas impiden que el navegador extienda la duración o modifique el reloj de inactividad. También impiden crear un grupo estudiantil saltándose la función. **Hasta desplegar las funciones, las clases docentes siguen usando su creación directa, pero los grupos estudiantiles no podrán crearse ni borrarse.** La interfaz no sustituye el borrado del servidor.
 
-El lienzo compartido necesita conexión para participar; espera a **Todo guardado** antes de salir. Las anotaciones personales conservan su cola local independiente. Esta versión no permite importar imágenes/PDF ni gestionar archivos compartidos, y no es un editor completo de FigJam. No necesita otro plugin ni otra base de datos para las herramientas incluidas.
+El acceso al contenido de un grupo vence a los 45 minutos incluso si se manipula el reloj local. El borrado físico se ejecuta en el siguiente barrido de cada minuto y puede demorarse más si hay un fallo del servicio. La inactividad se cuenta desde que Firebase registra que no quedan participantes; detectar una conexión perdida puede llevar tiempo. No se depende de que algún navegador permanezca abierto.
 
-## Comprobaciones
+El proceso marca el grupo como en eliminación antes de quitar sus datos para impedir nuevas entradas durante la limpieza. Los borrados y reintentos son idempotentes. Los grupos antiguos también se limpian según su fecha de creación, mientras las clases docentes se conservan.
 
-En esta entrega pasaron las pruebas de simulación y cinco pruebas de cola por cuenta, las comprobaciones de reglas en los emuladores y el recorrido en Chromium de registro, bloqueo hasta verificar, entrada al visor, dibujo 3D y Biblioteca, sincronización entre dos sesiones, cierre de sesión, recuperación y presentación móvil. Los correos y los usuarios de prueba existieron únicamente en el emulador `demo-risio`. No se probó el envío de un correo real ni se cambiaron los servicios en producción.
+## 3. Publicación estática y GitHub
 
-- `npm test`: simulaciones, estructuras, paneles, fórmulas, captura y pruebas de cola por cuenta.
-- `npm run test:boards`: reglas de creación directa, aislamiento universitario, carrera de seis usuarios por cinco cupos, liberación por desconexión, persistencia, clases con más de cinco personas, chat, mano y permisos.
-- `RISIO_BOARDS_BROWSER_TEST=1 npm run test:boards`: recorrido real en Chromium de creación de ambos tipos, sincronización entre profesor y estudiante, permisos, chat, búsqueda y diseño móvil. Requiere Playwright y Chromium; `RISIO_CHROMIUM_PATH` permite usar un ejecutable instalado.
-- `npm run test:firebase`: reglas reales con emuladores de Authentication, Realtime Database y Storage. Requiere Java 17 o superior con la versión de CLI fijada en el proyecto.
-- `RISIO_BROWSER_TEST=1 npm run test:firebase`: recorrido visual con Playwright y Chromium instalados (`npm install --no-save playwright` y `npx playwright install chromium`). Solo usa `demo-risio`; no crea cuentas en producción.
-- Para probar manualmente los emuladores: `npx firebase emulators:start --project demo-risio --only auth,database,storage` y, en otra terminal, `RISIO_EMULATORS=1 npm start`. Este modo se habilita únicamente en el servidor local y muestra una etiqueta de pruebas.
+Para generar los archivos que se publicarán:
 
-## Fuentes oficiales consultadas
+```bash
+npm run build:web
+```
 
-- [Gestión de usuarios: verificación y recuperación](https://firebase.google.com/docs/auth/web/manage-users).
-- [Autenticación por correo y contraseña](https://firebase.google.com/docs/auth/web/password-auth).
-- [Lectura y escritura; límites de persistencia offline en web](https://firebase.google.com/docs/database/web/read-and-write).
-- [Condiciones y autenticación en reglas de Realtime Database](https://firebase.google.com/docs/database/security/rules-conditions).
-- [Presencia y desconexión](https://firebase.google.com/docs/database/web/offline-capabilities).
-- [Cloud Storage en web y requisito de Blaze](https://firebase.google.com/docs/storage/web/start).
-- [Claims de privilegios desde servidor](https://firebase.google.com/docs/auth/admin/custom-claims).
+Publica únicamente el contenido de `dist/`. Este directorio no incluye `.env.local`, funciones, pruebas, servidor Node ni dependencias de desarrollo. En CI, configura `RISIO_FIREBASE_CONFIG` como variable/secret de despliegue y ejecuta el mismo comando. No publiques la raíz completa del repositorio como sitio web. `dist/` se regenera y está excluido de Git.
+
+**La configuración web generada es pública por diseño.** La apiKey de Firebase identifica el proyecto; no concede por sí sola permiso a leer cuentas, notas o archivos. Ocultarla en una variable de entorno evita dejarla en el código fuente, pero el navegador necesita recibirla y se puede inspeccionar. Las direcciones de Realtime Database y Storage tampoco son contraseñas. Ocultar realmente todos los endpoints requeriría un servidor intermediario para todas las operaciones, una arquitectura distinta a la conexión directa del SDK.
+
+### Alerta de GitHub de la captura
+
+La alerta señala una Google API Key en una versión anterior de `firebase-client.js`. Se retiró la clave del código actual. Esto **no revoca la clave, no elimina el commit antiguo ni cierra la alerta**.
+
+En tu consola:
+
+1. Revisa esa clave en Google Cloud → APIs y servicios → Credenciales. Limítala a las APIs de Firebase que usa el proyecto y a los orígenes web autorizados cuando sea compatible con tu configuración. Comprueba que no habilite uso sin restricciones de otras APIs facturables.
+2. Si la clave también se utilizaba en otros servicios, o decides reemplazarla, crea una nueva clave restringida, actualiza tu variable de despliegue, comprueba registro/login/base/Storage y después revoca la anterior. No revoques la única clave antes de configurar su reemplazo.
+3. Publica las reglas incluidas, revisa los dominios de Authentication y comprueba las cuotas. La auditoría de esta entrega revisó los archivos; no verificó tu configuración efectiva de Google Cloud ni el historial completo de GitHub.
+4. Revisa y resuelve la alerta en GitHub después de atender la clave y documentar que era una configuración web. Si una credencial privada real aparece en cualquier historial, revócala y sanea ese historial de forma coordinada. No basta con `.gitignore` para retirar algo que ya estaba versionado.
+
+No se encontraron claves privadas de servidor, tokens GitHub ni cuentas de servicio en los archivos entregados revisados. Las contraseñas presentes en `tools/verify-*-browser.mjs` son datos ficticios usados exclusivamente con emuladores locales; no son las contraseñas de tus usuarios. Los correos y contraseñas de usuarios reales se manejan con Firebase Authentication, no se escriben en el código ni en Realtime Database. Los tokens de sesión gestionados por el SDK en el navegador son necesarios para mantener la sesión.
+
+## 4. Datos y permisos
+
+- `profiles/UID`: perfil académico. Solo lo consulta su propietario. UPB se declara al registrarse; no verifica matrícula.
+- `annotations/UID/RECURSO`: trazos privados de modelos, PDFs, imágenes y videos. Requiere cuenta con correo verificado. La cola local por UID conserva pendientes; espera al indicador de sincronización antes de salir.
+- `boardDirectory/UNIVERSIDAD/ID`: título, clase/materia, creador y fecha. Solo se lista desde cuentas verificadas de esa universidad.
+- `boardData/UNIVERSIDAD/ID`: participantes/cupos, trazos, vistas previas en vivo, textos, resaltados, mensajes, manos y permisos. El contenido requiere participar; las listas de presencia pueden verse desde el catálogo de la misma universidad.
+- `boardData/UNIVERSIDAD/ID/_lifecycle`: reloj y estado de eliminación; solo escribe el servidor.
+- `teacherApprovals`: ruta heredada reservada; no se exige aprobación para crear un tablero de profesor.
+
+En las clases, el profesor creador anota por defecto y concede o retira permiso a otros participantes. Los permisos concedidos se mantienen hasta retirarlos. Los grupos de estudiantes tienen cinco reservas simultáneas validadas con transacciones; cerrar o salir libera la reserva al registrarse la desconexión. El chat conserva los mensajes; se muestran los últimos 100. No se han añadido importaciones de imágenes, PDF o documentos al tablero en esta entrega.
+
+## 5. Verificación
+
+```bash
+npm test
+npm run test:security
+npm run test:firebase
+npm run test:boards
+```
+
+Las pruebas de Firebase necesitan Java 17 o posterior con la CLI incluida y usan únicamente `demo-risio`. `test:boards` necesita instalar previamente las dependencias de `functions/`. Comprueba permisos, cinco cupos simultáneos, expiración, borrado íntegro, texto, color docente, grosor y trazos en vivo. Prueba los manejadores reales de las funciones contra emuladores de Auth/Database; el transporte local de prueba no sustituye verificar el despliegue real.
+
+Para la prueba visual, con Playwright/Chromium disponibles: `RISIO_BOARDS_BROWSER_TEST=1 npm run test:boards`. `RISIO_CHROMIUM_PATH` permite indicar un Chromium instalado. Los recorridos incluyen sincronización de profesor y estudiante, manos destacadas, texto, resaltado, borrado y móvil. No se crean usuarios ni datos de pruebas en producción. No se ha hecho una prueba de carga masiva.
+
+## Documentación oficial
+
+- https://firebase.google.com/docs/projects/api-keys
+- https://firebase.google.com/support/guides/security-checklist
+- https://firebase.google.com/docs/functions/get-started
+- https://firebase.google.com/docs/functions/schedule-functions
+- https://firebase.google.com/docs/database/web/offline-capabilities

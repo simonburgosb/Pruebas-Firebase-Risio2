@@ -7,7 +7,7 @@ const user = (uid, verified = true) => env.authenticatedContext(uid,{email_verif
 const profile = (uid,role='student',university='UPB') => ({displayName:uid,university,requestedRole:role,...(role==='student'?{semester:3}:{}),createdAt:Date.now()-100,updatedAt:Date.now()-100});
 const directory = (uid,kind='student',title='Grupo renal') => ({title,course:'Fisiología renal',ownerUid:uid,ownerName:uid,kind,createdAt:Date.now()-100});
 const presence = uid => ({uid,connectionId:'connection-'+uid,displayName:uid,joinedAt:Date.now()-100});
-const stroke = uid => ({authorUid:uid,pointsJson:'[[0.1,0.2],[0.5,0.7]]',color:'#8c2626',width:4,createdAt:Date.now()-100});
+const stroke = uid => ({authorUid:uid,pointsJson:'[[0.1,0.2],[0.5,0.7]]',...(uid==='teacher'?{red:40,green:92,blue:155}:{red:140,green:38,blue:38}),tool:'pen',width:4,createdAt:Date.now()-100});
 const db = {}, people = ['teacher','student1','student2','student3','student4','student5','student6','student7','other'];
 try {
   await env.clearDatabase();
@@ -17,7 +17,8 @@ try {
   for(const uid of people) db[uid] = user(uid);
   // No administrator approval: both registered profiles create directly.
   await assertSucceeds(db.teacher.ref('boardDirectory/UPB/class').set(directory('teacher','teacher','Clase de riñón')));
-  await assertSucceeds(db.student1.ref('boardDirectory/UPB/group').set(directory('student1')));
+  await assertFails(db.student1.ref('boardDirectory/UPB/group').set(directory('student1')));
+  await env.withSecurityRulesDisabled(async ctx=>{await ctx.database().ref('boardDirectory/UPB/group').set(directory('student1'));await ctx.database().ref('boardData/UPB/group/_lifecycle').set({createdAt:Date.now()-100,emptySince:Date.now(),deleting:false});});
   await assertFails(db.student2.ref('boardDirectory/UPB/forged').set(directory('student2','teacher')));
   await assertFails(db.student2.ref('boardDirectory/UPB/forged-owner').set(directory('student1')));
   await assertFails(user('student2',false).ref('boardDirectory/UPB/unchecked').set(directory('student2')));
@@ -27,7 +28,7 @@ try {
   await assertFails(db.student1.ref('boardDirectory/OTHER/wrong').set(directory('student1')));
   await assertSucceeds(db.student2.ref('boardDirectory/UPB').get());
   await assertFails(db.student1.ref('boardDirectory/UPB/group/kind').set('teacher'));
-  await assertSucceeds(db.student1.ref('boardDirectory/UPB/group/title').set('Grupo de repaso'));
+  await assertFails(db.student1.ref('boardDirectory/UPB/group/title').set('Grupo de repaso'));
   // Six users race for five fixed reservations. Transactions and rules arbitrate the final slot.
   const attempts = await Promise.all(people.filter(uid=>uid.startsWith('student')).slice(0,6).map(async uid => {
     for(let i=0;i<5;i++) {
@@ -80,7 +81,27 @@ try {
   for(let i=0;i<50;i++) { if(!(await observer.ref(`boardData/UPB/group/slots/${winner.slot}`).get()).exists()) break; await new Promise(r=>setTimeout(r,50)); }
   assert.equal((await observer.ref(`boardData/UPB/group/slots/${winner.slot}`).get()).exists(),false,'Desconexión libera el cupo');
   db[outsider].goOnline();
+  // Custom RGB is validated server-side; the blue family belongs only to the classroom owner.
+  await assertSucceeds(db.teacher.ref('boardData/UPB/class/permissions/student1').set(true));
+  await assertFails(db.student1.ref('boardData/UPB/class/strokes/blue').set({...stroke('student1'),red:0,green:0,blue:255}));
+  await assertFails(db.teacher.ref('boardData/UPB/class/strokes/red-teacher').set({...stroke('teacher'),red:255,green:0,blue:0}));
+  await assertSucceeds(db.student1.ref('boardData/UPB/class/strokes/custom').set({...stroke('student1'),red:213,green:91,blue:30,width:27,tool:'highlighter'}));
+  await assertSucceeds(db.student1.ref('boardData/UPB/class/live/student1').set(stroke('student1')));
+  await assertFails(db.student2.ref('boardData/UPB/class/live/student1').set(stroke('student2')));
+  const text={authorUid:'student1',text:'Filtración renal',x:.2,y:.3,fontSize:24,red:130,green:20,blue:35,updatedAt:Date.now()-10};
+  await assertSucceeds(db.student1.ref('boardData/UPB/class/texts/test').set(text));
+  await assertFails(db.student2.ref('boardData/UPB/class/texts/test').set({...text,authorUid:'student2'}));
+  await assertSucceeds(db.teacher.ref('boardData/UPB/class/highlights/test/teacher').set({red:40,green:92,blue:155}));
+  await assertFails(db.student1.ref('boardData/UPB/class/highlights/test/student1').set({red:0,green:0,blue:255}));
+  await assertSucceeds(db.teacher.ref('boardData/UPB/class/permissions/student1').remove());
+  await assertFails(db.student1.ref('boardData/UPB/class/live/student1').set(stroke('student1')));
+  await assertSucceeds(db.student1.ref('boardData/UPB/class/live/student1').remove());
+  await env.withSecurityRulesDisabled(async ctx=>{await ctx.database().ref('boardDirectory/UPB/group/createdAt').set(Date.now()-2700001);});
+  await assertFails(db[accepted[1].uid].ref('boardData/UPB/group/strokes/expired').set(stroke(accepted[1].uid)));
+  await assertFails(db[outsider].ref(`boardData/UPB/group/slots/${winner.slot}`).set(presence(outsider)));
+  await assertFails(db.student1.ref('boardData/UPB/group/_lifecycle').set({emptySince:Date.now()}));
   // Only this request's emulated records were used.
   console.log('OK: creación directa profesor/estudiante, aislamiento universitario, cinco cupos en carrera, liberación, persistencia, clase con ocho participantes, chat, mano, permisos y revocación.');
-  if(process.env.RISIO_BOARDS_BROWSER_TEST) await import('./verify-boards-browser.mjs');
+  const backend=await import('./board-backend-test.mjs');
+  try {await backend.testLifecycle();if(process.env.RISIO_BOARDS_BROWSER_TEST){const stop=await backend.startCallableHarness();try{await import('./verify-boards-browser.mjs');}finally{await stop();}}} finally {await backend.closeBackend();}
 } finally { await env.cleanup(); }

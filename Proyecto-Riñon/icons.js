@@ -1,5 +1,7 @@
 // Local outline icons: one stroke weight and the control's current color.
 const paths = {
+  text: '<path d="M4 4h16M12 4v16M8 20h8"/>',
+  highlight: '<path d="m5 14 9-11 7 6-9 11-7-6ZM5 14l-2 6h7M2 22h20"/>',
   board: '<rect x="3" y="3" width="18" height="14" rx="2"/><path d="M8 21l4-4 4 4M7 8h5M7 12h9"/>',
   users: '<circle cx="9" cy="8" r="3"/><path d="M3 21v-2a6 6 0 0 1 12 0v2M16 5a3 3 0 0 1 0 6M17 15a5 5 0 0 1 4 5"/>',
   hand: '<path d="M8 12V5a2 2 0 0 1 4 0v7-9a2 2 0 0 1 4 0v9-5a2 2 0 0 1 4 0v8a7 7 0 0 1-13 4l-4-6a2 2 0 0 1 3-3l2 2Z"/>',

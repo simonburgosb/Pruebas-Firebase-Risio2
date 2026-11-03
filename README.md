@@ -14,11 +14,15 @@ Risio inicia con login, creación de cuenta, verificación de correo y recuperac
 
 Abre **Tableros** en el inicio o junto a Mi cuenta. Profesores y estudiantes crean directamente con título y materia; hay listas y búsquedas separadas, filtros y orden por fecha o nombre. Solo aparecen tableros de tu universidad. Los grupos de estudiantes admiten cinco personas simultáneas, incluido el creador; las clases docentes no tienen un máximo fijado por la app. Incluye lápiz compartido, chat, participantes, mano levantada y permisos docentes. Los trazos permanecen guardados. **Publica de nuevo `database.rules.json`** para habilitar estas rutas; no requiere Storage para dibujo y chat. Los adjuntos todavía no están incluidos.
 
+## Seguridad y nuevos tableros
+
+La configuración de Firebase se proporciona desde `.env.local` o la variable `RISIO_FIREBASE_CONFIG`; el ZIP no contiene la configuración de producción. Consulta `INICIO_FIREBASE.md` antes de ejecutar. Los grupos estudiantiles ahora usan Cloud Functions para creación, borrado por el creador y eliminación automática (45 minutos, o dos minutos vacíos). Requiere desplegar funciones y reglas; el despliegue de funciones necesita Blaze. Las clases docentes no caducan. Incluye selector de color, slider de grosor, texto, resaltador, avances de dibujo en vivo y avisos destacados de mano levantada. En clases, el azul está reservado al profesor.
+
 ## Ejecutar en tu computador
 
 1. Descomprime el ZIP.
 2. Abre Git Bash dentro de la carpeta `Modelo-interactivo-3D-del-rinon`.
-3. Ejecuta:
+3. Copia `.env.example` como `.env.local`, completa tu configuración web de Firebase como indica `INICIO_FIREBASE.md` y ejecuta:
 
 ```bash
 npm start
