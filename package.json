@@ -1,0 +1,24 @@
+{
+  "name": "modelo-interactivo-rinon",
+  "version": "4.0.0",
+  "private": true,
+  "scripts": {
+    "start": "node Proyecto-Riñon/server.mjs",
+    "test": "node Proyecto-Riñon/tools/verify.mjs && node Proyecto-Riñon/tools/verify-glomerulus.mjs && node Proyecto-Riñon/tools/verify-nephron.mjs && node Proyecto-Riñon/tools/verify-kidney-journey.mjs && node Proyecto-Riñon/tools/verify-kidney-glucosuria.mjs && node Proyecto-Riñon/tools/verify-kidney-blood-direction.mjs && node Proyecto-Riñon/tools/verify-glomerulus-asset.mjs && node Proyecto-Riñon/tools/verify-glomerulus-return.mjs && node Proyecto-Riñon/tools/verify-nephron85.mjs && node Proyecto-Riñon/tools/verify-viewer-ui.mjs && node Proyecto-Riñon/tools/verify-filtration-ui.mjs && node Proyecto-Riñon/tools/verify-formula-live.mjs && node Proyecto-Riñon/tools/verify-screenshot.mjs && node Proyecto-Riñon/tools/verify-nephron15.mjs && npm run test:accounts",
+    "build:firebase": "node Proyecto-Riñon/tools/build-firebase.mjs",
+    "test:accounts": "node --test Proyecto-Riñon/tools/verify-account-notes.mjs",
+    "test:firebase": "firebase emulators:exec --project demo-risio --only auth,database,storage \"node Proyecto-Riñon/tools/verify-firebase.mjs\"",
+    "test:boards": "firebase emulators:exec --project demo-risio --only auth,database \"node Proyecto-Riñon/tools/verify-boards.mjs\""
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "firebase": "^13.2.0"
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^6.0.0",
+    "esbuild": "^0.28.2",
+    "firebase-tools": "^14.22.0"
+  }
+}

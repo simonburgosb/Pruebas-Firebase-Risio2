@@ -1,0 +1,17 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Base privada para adjuntos. El tablero compartido necesita sus propias
+    // reglas de pertenencia: estas reglas NO comparten archivos con una clase.
+    match /private/{uid}/{fileName} {
+      function owner() {
+        return request.auth != null && request.auth.uid == uid
+          && request.auth.token.email_verified == true;
+      }
+      allow read, delete: if owner();
+      allow create: if owner() && request.resource.size < 10 * 1024 * 1024
+        && request.resource.contentType.matches('(image/(png|jpeg|webp|gif)|application/pdf|text/plain)');
+      allow update: if false;
+    }
+  }
+}

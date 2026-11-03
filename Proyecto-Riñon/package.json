@@ -1,0 +1,25 @@
+{
+  "name": "atlas-renal-glucosa",
+  "version": "4.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node tools/verify.mjs && node tools/verify-glomerulus.mjs && node tools/verify-nephron.mjs && node tools/verify-kidney-journey.mjs && node tools/verify-kidney-glucosuria.mjs && node tools/verify-kidney-blood-direction.mjs && node tools/verify-glomerulus-asset.mjs && node tools/verify-glomerulus-return.mjs && node tools/verify-nephron85.mjs && node tools/verify-viewer-ui.mjs && node tools/verify-filtration-ui.mjs && node tools/verify-formula-live.mjs && node tools/verify-screenshot.mjs && node tools/verify-nephron15.mjs && npm run test:accounts",
+    "build:firebase": "node tools/build-firebase.mjs",
+    "test:accounts": "node --test tools/verify-account-notes.mjs",
+    "test:firebase": "firebase emulators:exec --project demo-risio --only auth,database,storage \"node tools/verify-firebase.mjs\"",
+    "test:boards": "firebase emulators:exec --project demo-risio --only auth,database \"node tools/verify-boards.mjs\""
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "firebase": "^13.2.0"
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^6.0.0",
+    "esbuild": "^0.28.2",
+    "firebase-tools": "^14.22.0"
+  }
+}
