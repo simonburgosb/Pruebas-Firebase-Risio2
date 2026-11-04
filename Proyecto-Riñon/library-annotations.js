@@ -1,3 +1,5 @@
+import {InkGestures} from './ink-gestures.js';
+import {readableInk} from './theme.js';
 import {notes} from './account-notes.js';
 // Pizarra transparente: mismas herramientas que en el visor 3D.
 // Coordenadas normalizadas para conservar los trazos al cambiar de tamaño.
@@ -37,6 +39,8 @@ export class AnnotationLayer {
     toolbar.querySelector('[data-ink-clear]').addEventListener('click', () => {
       this.strokes.length = 0; this.redraw(); this.save();
     });
+    this.attachGestures();
+    window.addEventListener('risio-theme-change',()=>this.redraw());
     canvas.addEventListener('pointerdown', (event) => {
       if (!this.enabled || this.current || (event.pointerType === 'mouse' && event.button !== 0)) return;
       event.preventDefault();
@@ -52,13 +56,22 @@ export class AnnotationLayer {
     });
     for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) {
       canvas.addEventListener(type, (event) => {
-        if (event.pointerId === this.pointerId) this.finish();
+        if (event.pointerId === this.pointerId) {if(type==='pointerup')this.finish();else this.cancel();}
       });
     }
     this.observer = new ResizeObserver(() => this.resize());
     this.observer.observe(canvas.parentElement);
   }
 
+  cancel() {
+    if(!this.current)return;
+    const i=this.strokes.indexOf(this.current);if(i>=0)this.strokes.splice(i,1);
+    this.current=null;this.pointerId=null;this.redraw();
+  }
+  attachGestures() {
+    const parent=this.canvas.parentElement;
+    this.gestures=new InkGestures(this.canvas,{viewport:parent,targets:()=>[...parent.children].filter(e=>e!==this.gestures?.resetButton && !e.classList.contains('sr-only')),enabled:()=>this.enabled,cancel:()=>this.cancel()});
+  }
   point(event) {
     const r = this.canvas.getBoundingClientRect();
     return {x: Math.max(0, Math.min(1, (event.clientX - r.left) / r.width)), y: Math.max(0, Math.min(1, (event.clientY - r.top) / r.height))};
@@ -66,8 +79,10 @@ export class AnnotationLayer {
 
   mount(parent) {
     this.finish();
+    this.gestures?.destroy();
     this.observer.unobserve(this.canvas.parentElement);
     parent.append(this.canvas);
+    this.attachGestures();
     this.observer.observe(parent);
     this.resize();
   }
@@ -81,6 +96,7 @@ export class AnnotationLayer {
 
   setKey(key) {
     this.finish();
+    this.gestures?.reset();
     this.key = `library:${key}`;
     this.strokes = notes.read(this.key);
     this.resize();
@@ -88,6 +104,7 @@ export class AnnotationLayer {
 
   setEnabled(enabled) {
     this.finish();
+    if(!enabled)this.gestures?.abortInput();
     this.enabled = enabled;
     this.canvas.hidden = !enabled;
     this.toolbar.hidden = !enabled;
@@ -122,7 +139,7 @@ export class AnnotationLayer {
       ctx.save();
       ctx.lineCap = 'round'; ctx.lineJoin = 'round';
       ctx.lineWidth = stroke.width;
-      ctx.strokeStyle = stroke.color;
+      ctx.strokeStyle = readableInk(stroke.color,this.canvas.parentElement.classList.contains('library-pdf-page') || Boolean(this.canvas.parentElement.querySelector('img')));
       ctx.globalCompositeOperation = stroke.eraser ? 'destination-out' : 'source-over';
       ctx.beginPath();
       stroke.points.forEach((p, i) => i ? ctx.lineTo(p.x * w, p.y * h) : ctx.moveTo(p.x * w, p.y * h));

@@ -66,13 +66,13 @@ assert.equal(nodes.get('#structure-title').textContent, 'Corteza renal');
 
 const main = fs.readFileSync(new URL('../main.js', import.meta.url), 'utf8');
 const section = (start, end) => main.slice(main.indexOf(start), main.indexOf(end, main.indexOf(start)));
-const drawing = section('function setDrawingMode(', "annotationCanvas.addEventListener('pointerdown'");
+const drawing = section('function setDrawingMode(', 'function cancelViewerStroke(');
 const cutCode = section('function setCutView(', 'function updateCutOnlyTools(');
 const layout = section('function updateModuleLayout(', 'function switchModule(');
 // switchModule contains a tabBtns.forEach call, so take its external binding boundary.
 const switchCode = main.slice(main.indexOf('function switchModule('), main.indexOf("tabBtns.forEach((btn) => btn.addEventListener"));
 const home = section('function showHome(', "document.querySelector('#btn-home').addEventListener");
-const ctx = { document: doc, drawingMode: false, currentStroke: null, drawingPointerId: null, currentActiveTab: '1', anatomyKind: 'kidney', isCutViewActive: false,
+const ctx = { document: doc, viewerGestures:{abortInput(){}}, drawingMode: false, currentStroke: null, drawingPointerId: null, currentActiveTab: '1', anatomyKind: 'kidney', isCutViewActive: false,
   annotationCanvas: nodes.get('#annotation-canvas'), drawingControls: nodes.get('#drawing-controls'), drawButton: nodes.get('#btn-draw'),
   glucoseDrawButton: nodes.get('#btn-glucose-draw'), controls: { enabled: true }, previousToolButton: tools[0], activeToolId: 'btn-select',
   kidneyModel: kidney, glomerulusAnatomy: null, nephronAnatomy: null, nephron85Anatomy: null,

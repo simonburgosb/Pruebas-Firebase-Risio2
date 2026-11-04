@@ -1,3 +1,4 @@
+import {darkMode} from './theme.js';
 import * as THREE from './vendor/three.module.js';
 import { OrbitControls } from './vendor/OrbitControls.js';
 import { GLOMERULUS_STRUCTURES } from './glomerulus-structures.js';
@@ -89,7 +90,8 @@ export function extractPreview(model, name = null) {
 export class ModelPreview {
   constructor(canvas, interactive = false) {
     this.canvas = canvas;
-    this.scene = new THREE.Scene(); this.scene.background = new THREE.Color('#eae5de');
+    this.scene = new THREE.Scene(); this.scene.background = new THREE.Color(darkMode()?'#242529':'#eae5de');
+    window.addEventListener('risio-theme-change',()=>{this.scene.background.set(darkMode()?'#242529':'#eae5de');this.render();});
     this.scene.add(new THREE.AmbientLight(0xffffff, 1.6));
     const light = new THREE.DirectionalLight(0xffffff, 2); light.position.set(3, 5, 8); this.scene.add(light);
     this.camera = new THREE.PerspectiveCamera(38, 1, .001, 10000);

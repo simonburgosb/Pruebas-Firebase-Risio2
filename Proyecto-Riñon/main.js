@@ -1,3 +1,5 @@
+import {InkGestures} from './ink-gestures.js';
+import {darkMode, readableInk} from './theme.js';
 import {notes} from './account-notes.js';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -20,7 +22,8 @@ const container = document.querySelector('#model-stage');
 
 // --- ESCENA THREE.JS ---
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0xf6f4f0);
+scene.background = new THREE.Color(darkMode()?'#17191c':'#f6f4f0');
+window.addEventListener('risio-theme-change',()=>{scene.background.set(darkMode()?'#17191c':'#f6f4f0');redrawAnnotations();});
 
 const camera = new THREE.PerspectiveCamera(
   45,
@@ -456,7 +459,7 @@ function drawStroke(stroke) {
   annotationContext.lineCap = 'round';
   annotationContext.lineJoin = 'round';
   annotationContext.lineWidth = stroke.width;
-  annotationContext.strokeStyle = stroke.color;
+  annotationContext.strokeStyle = readableInk(stroke.color);
   annotationContext.globalCompositeOperation = stroke.eraser ? 'destination-out' : 'source-over';
   annotationContext.beginPath();
 
@@ -485,6 +488,7 @@ function getNormalizedPoint(event) {
 
 function setDrawingMode(enabled) {
   if (currentStroke) finishStroke({pointerId: drawingPointerId});
+  if(!enabled)viewerGestures.abortInput();
   drawingMode = enabled;
   if (enabled) {
     // Dibujar sustituye la herramienta activa; una pieza aislada no debe quedar
@@ -506,6 +510,13 @@ function setDrawingMode(enabled) {
   if (!enabled && previousToolButton) previousToolButton.classList.add('active');
 }
 
+function cancelViewerStroke() {
+  if(!currentStroke)return;
+  const i=strokes.indexOf(currentStroke);if(i>=0)strokes.splice(i,1);
+  currentStroke=null;drawingPointerId=null;redrawAnnotations();
+}
+const viewerGestures=new InkGestures(annotationCanvas,{viewport:container,targets:()=>[canvas,annotationCanvas],enabled:()=>drawingMode,cancel:cancelViewerStroke});
+window.addEventListener('risio-theme-change',()=>redrawAnnotations());
 annotationCanvas.addEventListener('pointerdown', (event) => {
   if (!drawingMode || currentStroke || (event.pointerType === 'mouse' && event.button !== 0)) return;
   drawingPointerId = event.pointerId;
@@ -536,8 +547,8 @@ window.addEventListener('risio-finish-annotations', () => finishStroke({pointerI
 window.addEventListener('pagehide', () => finishStroke({pointerId: drawingPointerId}));
 
 annotationCanvas.addEventListener('pointerup', finishStroke);
-annotationCanvas.addEventListener('pointercancel', finishStroke);
-annotationCanvas.addEventListener('lostpointercapture', finishStroke);
+annotationCanvas.addEventListener('pointercancel', cancelViewerStroke);
+annotationCanvas.addEventListener('lostpointercapture', cancelViewerStroke);
 
 drawButton.addEventListener('click', () => setDrawingMode(!drawingMode));
 glucoseDrawButton.addEventListener('click', () => setDrawingMode(!drawingMode));

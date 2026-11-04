@@ -381,3 +381,7 @@ Los controles de opacidad, pausa y reinicio de Filtración quedan a la izquierda
 Los iconos de la aplicación utilizan ahora SVG locales de trazo uniforme y rojo oscuro, incluidos selección, aislamiento, corte, visibilidad, anotación, inicio, guardar, biblioteca y controles de documentos. `icons.js` comparte las figuras con los controles dinámicos, sin una dependencia de red.
 
 Las pruebas `tools/verify-filtration-ui.mjs` y `tools/verify-formula-live.mjs` comprueban navegación del carrusel, teclado, movimiento reducido, persistencia de valores, actualización de los seis resultados, TFG de Starling/manual/cero, iconos y encuadre del modelo con el espacio disponible. Las verificaciones de GLTFLoader comprueban los modelos y PNG reales junto a los controles. La validación de integración es programática, sin renderizado GPU.
+
+## Temas y tablets
+
+Modo claro original, modo oscuro persistente y gestos de anotación compartidos en visor, Biblioteca y tableros. Consulta `LEEME_TABLETS.md` para el uso, las pruebas y la actualización en GitHub Pages.

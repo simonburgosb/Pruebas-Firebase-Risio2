@@ -1,3 +1,5 @@
+import {InkGestures} from './ink-gestures.js';
+import {darkMode, readableInk} from './theme.js';
 import {auth, database} from './firebase-client.js';
 import {ref, onValue} from './vendor/firebase-sdk.js';
 import {hydrateIcons, iconMarkup} from './icons.js';
@@ -116,6 +118,8 @@ function showCreate() {
   $('#board-create-error').hidden = true; $('#board-create-form').reset(); $('#board-create-dialog').showModal(); $('#board-create-title').focus();
 }
 async function openRoom(meta) {
+  document.body.classList.add('board-room-open');
+  boardGestures.reset();
   joining = true; roomError(); previousStrokeState = ''; previousPeopleState = ''; previousChatState = ''; gesture = null;
   $('#boards-catalog').hidden = true; $('#board-room').hidden = false;
   $('#board-room-title').textContent = meta.title; $('#board-room-subtitle').textContent = `${meta.course} · ${meta.kind === 'teacher' ? 'Clase de ' : 'Grupo de '}${meta.ownerName} · UPB`;
@@ -128,7 +132,7 @@ async function openRoom(meta) {
 function drawStroke(stroke) {
   const value = parseStroke(stroke); if (!value) return;
   ctx.globalAlpha=value.tool==='highlighter'?.25:1;
-  ctx.strokeStyle = value.color; ctx.fillStyle = value.color; ctx.lineWidth = value.width; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  ctx.strokeStyle = readableInk(value.color); ctx.fillStyle = readableInk(value.color); ctx.lineWidth = value.width; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
   const [first, ...points] = value.points;
   if (!points.length) { ctx.beginPath(); ctx.arc(first[0]*1600,first[1]*1000,value.width/2,0,Math.PI*2); ctx.fill(); return; }
   ctx.beginPath(); ctx.moveTo(first[0]*1600,first[1]*1000); for (const point of points) ctx.lineTo(point[0]*1600,point[1]*1000); ctx.stroke();
@@ -141,11 +145,11 @@ function drawText(id,value) {
   const height=lines.length*size*1.35, width=Math.min(maxWidth,Math.max(30,...lines.map(l=>ctx.measureText(l).width)));
   const highlights=Object.values(session.state.highlights[id]||{});
   if(highlights.length){ctx.fillStyle=inkColor(highlights.at(-1));ctx.globalAlpha=.25;lines.forEach((line,i)=>ctx.fillRect(x-3,y+i*size*1.35,Math.max(10,ctx.measureText(line).width)+6,size*1.2));ctx.globalAlpha=1;}
-  ctx.fillStyle=inkColor(value);lines.forEach((line,i)=>ctx.fillText(line,x,y+i*size*1.35,maxWidth));
+  ctx.fillStyle=readableInk(inkColor(value));lines.forEach((line,i)=>ctx.fillText(line,x,y+i*size*1.35,maxWidth));
   textBoxes.push({id,x:x/1600,y:y/1000,width:width/1600,height:height/1000});
 }
 function repaint() {
-  ctx.globalAlpha=1;ctx.fillStyle='#ffffff';ctx.fillRect(0,0,1600,1000);textBoxes=[];
+  ctx.globalAlpha=1;ctx.fillStyle=darkMode()?'#191b1f':'#ffffff';ctx.fillRect(0,0,1600,1000);textBoxes=[];
   const strokes=Object.values(session?.state.strokes||{}),live=Object.entries(session?.state.live||{}).filter(([uid])=>uid!==session.uid).map(([,v])=>v);
   for(const stroke of [...strokes,...live].filter(s=>s.tool!=='highlighter'))drawStroke(stroke);
   for(const [id,value]of Object.entries(session?.state.texts||{}))drawText(id,value);
@@ -213,7 +217,7 @@ function renderPeople() {
   }).join('') || '<p class="board-chat-empty">No hay participantes que coincidan.</p>';
   hydrateIcons($('#board-people-list'));
 }
-async function list() { closeTextEditor(); await session.leave(); gesture = null; $('#board-room').hidden = true; $('#boards-catalog').hidden = false; renderCatalog(); $('#boards-title').focus(); }
+async function list() { document.body.classList.remove('board-room-open'); closeTextEditor(); await session.leave(); gesture = null; $('#board-room').hidden = true; $('#boards-catalog').hidden = false; renderCatalog(); $('#boards-title').focus(); }
 async function open() {
   if (!profile || visible) return;
   $('#library-reader-close')?.click(); $('#btn-home').click();
@@ -224,6 +228,7 @@ async function open() {
   subscribeDirectory(); renderCatalog(); window.scrollTo(0,0); $('#boards-title').focus();
 }
 async function close() {
+  document.body.classList.remove('board-room-open');
   closeTextEditor();await session.leave(); for (const stop of countStops.values()) stop(); countStops.clear();
   visible = false; document.body.classList.remove('boards-screen-open');
   $('#btn-home').click(); $('#btn-boards').focus();
@@ -262,11 +267,11 @@ function point(event) { const box = canvas.getBoundingClientRect(); return [Math
 function positionTextEditor() {
   if(!textTarget)return;
   const editor=$('#board-text-dialog'), paper=canvas.parentElement;
-  const width=Math.min(360,paper.clientWidth-16);
+  const width=Math.min(360,paper.clientWidth-16),view=canvas.getBoundingClientRect(),base=paper.getBoundingClientRect();
   editor.style.width=width+'px';
-  editor.style.left=Math.max(8,Math.min(textTarget.x*paper.clientWidth,paper.clientWidth-width-8))+'px';
-  editor.style.top=Math.max(8,Math.min(textTarget.y*canvas.clientHeight,Math.max(8,canvas.clientHeight-300)))+'px';
-  $('#board-text-value').style.color=textTarget.color;
+  editor.style.left=Math.max(8,Math.min(view.left-base.left+textTarget.x*view.width,paper.clientWidth-width-8))+'px';
+  editor.style.top=Math.max(8,Math.min(view.top-base.top+textTarget.y*view.height,Math.max(8,paper.clientHeight-300)))+'px';
+  $('#board-text-value').style.color=readableInk(textTarget.color);
 }
 function closeTextEditor() {
   if(textSaving)return;
@@ -278,10 +283,15 @@ $('#board-text-value').addEventListener('keydown',event=>{
   if((event.ctrlKey||event.metaKey)&&event.key==='Enter'){event.preventDefault();$('#board-text-form').requestSubmit();}
 });
 function hitText(p){return [...textBoxes].reverse().find(b=>p[0]>=b.x && p[0]<=b.x+b.width && p[1]>=b.y && p[1]<=b.y+b.height);}
-canvas.addEventListener('pointerdown',event=>{
+function cancelBoardInk(){gesture=null;pendingTap=null;session?.finishLive().catch(()=>{});repaint();}
+let pendingTap=null;
+const boardGestures=new InkGestures(canvas,{enabled:()=>visible && !$('#board-room').hidden,cancel:cancelBoardInk,changed:positionTextEditor});
+window.addEventListener('risio-theme-change',()=>{if(session)repaint();positionTextEditor();});
+function startBoardInk(event,fromTap=false){
   if(!$('#board-text-dialog').hidden)return;
   if(!session?.canDraw || (event.pointerType==='mouse' && event.button!==0) || gesture)return;
   const p=point(event),hit=hitText(p);
+  if(event.pointerType==='touch' && !fromTap && (tool==='text' || tool==='highlighter' && hit)){pendingTap=event;return;}
   if(tool==='text'){
     if(hit && session.state.texts[hit.id].authorUid!==session.uid){roomError('Solo el autor puede editar esta caja de texto.');return;}
     textTarget=hit?{...session.state.texts[hit.id],id:hit.id,color:inkColor(session.state.texts[hit.id])}:{x:Math.min(.95,p[0]),y:Math.min(.95,p[1]),fontSize:24,color};
@@ -291,7 +301,8 @@ canvas.addEventListener('pointerdown',event=>{
   event.preventDefault();canvas.setPointerCapture(event.pointerId);
   gesture={pointer:event.pointerId,points:[p],color,width:Number($('#board-width').value)*(tool==='highlighter'?4:1),tool};$('#board-blank').hidden=true;lastLiveAt=performance.now();
   session.liveStroke(gesture.points,color,gesture.width,tool).catch(roomError);repaint();
-});
+}
+canvas.addEventListener('pointerdown',event=>startBoardInk(event));
 canvas.addEventListener('pointermove',event=>{
   if(!gesture || gesture.pointer!==event.pointerId)return;
   const p=point(event),last=gesture.points.at(-1);
@@ -299,11 +310,13 @@ canvas.addEventListener('pointermove',event=>{
     if(performance.now()-lastLiveAt>80){lastLiveAt=performance.now();session.liveStroke([...gesture.points],gesture.color,gesture.width,gesture.tool).catch(roomError);}}
 });
 canvas.addEventListener('pointerup',async event=>{
+  if(pendingTap?.pointerId===event.pointerId){const tap=pendingTap;pendingTap=null;startBoardInk(tap,true);return;}
   if(!gesture || gesture.pointer!==event.pointerId)return;const stroke=gesture;gesture=null;
   try{await session.stroke(stroke.points,stroke.color,stroke.width,stroke.tool);}catch(error){roomError(error);}finally{await session.finishLive().catch(()=>{});}
   repaint();updateRoom();
 });
-canvas.addEventListener('pointercancel',()=>{gesture=null;session.finishLive().catch(()=>{});repaint();updateRoom();});
+canvas.addEventListener('pointercancel',cancelBoardInk);
+canvas.addEventListener('lostpointercapture',()=>{if(gesture)cancelBoardInk();});
 $('#board-color').addEventListener('input',event=>chooseColor(event.target.value));
 $('#board-width').addEventListener('input',event=>$('#board-width-value').value=event.target.value);
 $('#board-text-cancel').addEventListener('click',closeTextEditor);
