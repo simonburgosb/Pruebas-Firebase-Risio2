@@ -24,3 +24,14 @@ export function inkColor(value) {
   return /^#[0-9a-f]{6}$/i.test(value.color||'')?value.color:'#302b28';
 }
 export function isBlue(color) {const {red,green,blue}=rgb(color);return blue>red && blue>green;}
+
+export const CLASS_TTL = 60*60*1000;
+export const EMPTY_TTL = 2*60*1000;
+export const boardLimit = meta => meta.kind==='teacher'?50:5;
+export const boardLifetime = meta => meta.kind==='teacher'?CLASS_TTL:BOARD_TTL;
+export const activePeople = values => Object.values(values||{}).filter(v=>!v.leftAt);
+export function boardExpired(meta, now, slots) {
+  if(now >= meta.createdAt+boardLifetime(meta))return true;
+  if(meta.kind!=='student' || !slots || activePeople(slots).length)return false;
+  return now >= Math.max(meta.createdAt,...Object.values(slots).map(v=>v.leftAt||meta.createdAt))+EMPTY_TTL;
+}

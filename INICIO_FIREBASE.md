@@ -2,13 +2,14 @@
 
 ## Cambios de esta entrega Spark
 
-- Registro, verificación, notas privadas y tableros conservados.
-- Creación y borrado directo en Realtime Database, sin funciones de pago.
-- Cinco personas simultáneas por grupo, incluyendo al creador.
-- Vencimiento de 45 minutos con reloj de servidor y reglas; limpieza al abrir o mantener abierta la sección Tableros.
-- Colores, grosor, texto, resaltador, chat, manos y permisos conservados.
-- Azul reservado al profesor en clases docentes.
-- `.env.local` sigue siendo privado y no se incluye en el ZIP.
+| Tablero | Duración máxima | Cupos simultáneos | Borrado manual |
+| --- | --- | --- | --- |
+| Clase docente | 60 minutos desde creación | 50, incluido el profesor | Profesor creador |
+| Grupo estudiantil | 45 minutos desde creación, o 2 minutos vacío | 5, incluido el creador | Estudiante creador |
+
+Ambos se ocultan al vencer, y las reglas impiden nuevas lecturas, entradas y escrituras. Publica las reglas NUEVAS completas antes de usar esta entrega. Conserva `.env.local`. Para GitHub Pages, vuelve a generar y publicar `dist/`.
+
+El borrado físico se hace con sesiones autenticadas conectadas a Risio, cada 15 segundos o al iniciar sesión. Si toda la app está cerrada, los datos se eliminan en el siguiente inicio de sesión conectado de alguien de la misma universidad; Spark no ejecuta un temporizador de borrado sin clientes. La caducidad se valida igualmente en el servidor en cada operación.
 
 ## 1. Conexión local sin publicar la configuración en Git
 
@@ -28,11 +29,15 @@ No se necesita Functions, Scheduler, Storage ni el plan Blaze para los tableros 
 2. Firebase Console → Realtime Database → Reglas: reemplaza las reglas completas por el archivo `database.rules.json` de ESTA versión y pulsa Publicar.
 3. Recarga Risio e inicia sesión con correo verificado. Crea tu grupo desde Tableros.
 
-Los grupos se crean directamente con fecha de servidor. El propietario puede borrarlos con confirmación. Las reglas mantienen cinco cupos, universidad y permisos; nadie puede cambiar la fecha ni extender los 45 minutos.
+Los tableros se crean con fecha de servidor inmutable. El propietario puede borrar su tablero mediante confirmación, desde la tarjeta o dentro del lienzo. Las reglas protegen universidad, propietario, colores, texto, permisos y caducidad.
 
-**Caducidad y borrado son diferentes:** las reglas evalúan el reloj de Firebase en cada operación y deniegan nuevas lecturas del contenido, entradas y escrituras al vencer. La interfaz oculta los vencidos y vacía el lienzo de la sesión al alcanzar el plazo; las copias ya descargadas no pueden revocarse. Una sesión con Tableros abierto revisa cada 15 segundos y elimina metadatos y contenido con una actualización atómica. Si todos cierran la app, el borrado físico ocurre cuando alguien verificado de la misma universidad vuelve a abrir Tableros con conexión. El grupo permanece inaccesible aunque aún esté almacenado. No se promete una tarea programada sin clientes.
+Las clases reservan uno de 50 cupos fijos mediante transacciones. Al salir o desconectarse, se retiran conjuntamente la reserva y la presencia. El profesor cuenta como una persona cuando está conectado; no tiene un cupo adicional.
 
-En esta versión se elimina la caducidad anticipada de dos minutos vacíos: Spark no proporciona aquí un proceso de servidor que mida y limpie esa inactividad. La presencia sí se libera con `onDisconnect` al detectar la desconexión. Las clases docentes se conservan.
+Los grupos guardan hasta cinco reservas. Al salir, la reserva conserva `leftAt`, con fecha del servidor. El cupo queda libre inmediatamente al registrarse esa salida; si otra persona entra, reemplaza la reserva inactiva. Al desconectarse el último navegador, `onDisconnect` guarda su salida en Firebase sin depender de que otra pestaña esté abierta. Los dos minutos se cuentan desde la última salida registrada, no desde la creación. Una pérdida de conexión puede tardar en ser detectada por Firebase.
+
+**Caducidad y borrado son diferentes:** las reglas evalúan el reloj de Firebase por operación. El grupo vacío deja de admitir entradas al vencer los dos minutos aunque todavía esté almacenado. Una sesión autenticada de Risio elimina metadatos y contenido con una actualización atómica; sin sesiones abiertas, se limpia en la siguiente visita. Las copias ya descargadas no se pueden revocar.
+
+Las clases antiguas que ya estaban abiertas con una versión anterior deben cerrarse antes de actualizar: sus participantes no tienen las nuevas reservas de capacidad. Los grupos antiguos sin marcadores de salida se consideran vacíos desde su fecha de creación cuando no tienen reservas activas. No modifiques manualmente los tiempos para reactivarlos.
 
 La distribución Spark no incluye `functions/` ni sus pruebas. No ejecutes comandos de despliegue de funciones. Si prefieres publicar reglas por CLI: `npx firebase deploy --only database --project TU_PROYECTO`.
 

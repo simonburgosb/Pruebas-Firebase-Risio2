@@ -2,7 +2,7 @@ import {auth, database} from './firebase-client.js';
 import {ref, onValue} from './vendor/firebase-sdk.js';
 import {hydrateIcons, iconMarkup} from './icons.js';
 import {BoardSession} from './board-session.js';
-import {selectBoards, parseStroke, rgb, inkColor, isBlue, TEACHER_BLUE, BOARD_TTL} from './board-utils.js';
+import {selectBoards, parseStroke, rgb, inkColor, isBlue, TEACHER_BLUE, BOARD_TTL, boardLimit, boardLifetime, boardExpired, activePeople} from './board-utils.js';
 
 const $ = selector => document.querySelector(selector);
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -39,7 +39,7 @@ shell.innerHTML = `
     </div><aside class="board-sidebar" aria-label="Participantes y chat"><section class="board-people"><h2>${icon('users')} Participantes <span id="board-people-count">0</span></h2><label class="board-search">${icon('search')}<input id="board-people-search" type="search" placeholder="Buscar participante" aria-label="Buscar participante"></label><div id="board-people-list"></div></section><section class="board-chat"><h2>${icon('chat')} Chat del tablero</h2><div id="board-chat-list" class="board-chat-list" role="log" aria-label="Mensajes del tablero" aria-live="polite"></div><form id="board-chat-form"><label class="sr-board-only" for="board-chat-input">Mensaje</label><input id="board-chat-input" maxlength="1000" placeholder="Escribe un mensaje…" required autocomplete="off"><button class="board-button" type="submit" aria-label="Enviar mensaje">${icon('right')}</button></form></section></aside></div>
   </section>
   <dialog id="board-create-dialog" class="board-dialog"><form id="board-create-form"><div class="board-dialog-heading"><span class="board-eyebrow">UN NUEVO ESPACIO</span><button type="button" class="board-icon-button" id="board-create-close" aria-label="Cerrar">${icon('close')}</button></div><h2>Crear tablero</h2><p id="board-create-description"></p><label>Título del tablero<input id="board-create-title" name="title" required minlength="2" maxlength="100" placeholder="Ej. Nombre de la clase o de la materia"></label><label>Clase o materia<input name="course" required minlength="2" maxlength="100" placeholder="Ej. Fisiología renal · Grupo 01"></label><div class="board-create-university">${icon('users')} UPB <span id="board-create-capacity"></span></div><p id="board-create-error" role="alert" hidden></p><button id="board-create-submit" class="board-button board-primary" type="submit">Crear y abrir tablero</button></form></dialog>
-  <dialog id="board-delete-dialog" class="board-dialog"><h2>¿Borrar este tablero?</h2><p>Se eliminarán definitivamente el lienzo, los textos, el chat y los participantes de este grupo.</p><p id="board-delete-error" role="alert" hidden></p><div class="board-room-actions"><button id="board-delete-cancel" type="button" class="board-button">Cancelar</button><button id="board-delete-confirm" type="button" class="board-button board-primary">Borrar tablero</button></div></dialog>
+  <dialog id="board-delete-dialog" class="board-dialog"><h2>¿Borrar este tablero?</h2><p>Se eliminarán definitivamente el lienzo, los textos, el chat y los participantes de este tablero.</p><p id="board-delete-error" role="alert" hidden></p><div class="board-room-actions"><button id="board-delete-cancel" type="button" class="board-button">Cancelar</button><button id="board-delete-confirm" type="button" class="board-button board-primary">Borrar tablero</button></div></dialog>
   <dialog id="board-clear-dialog" class="board-dialog"><h2>¿Vaciar el lienzo compartido?</h2><p>Se eliminarán los trazos, textos y resaltados de este tablero. Los mensajes del chat se conservarán.</p><div class="board-room-actions"><button class="board-button" id="board-clear-cancel" type="button">Cancelar</button><button class="board-button board-primary" id="board-clear-confirm" type="button">Vaciar lienzo</button></div></dialog>
 `;
 $('.main-container').append(shell); hydrateIcons(shell);
@@ -47,22 +47,32 @@ let profile, session, directoryStop, visible = false, loaded = false, items = []
 let textSaving=false;
 let tool='pen', textTarget=null, deleteTarget=null, textBoxes=[], lastLiveAt=0;
 let color = '#8c2626', gesture = null, previousStrokeState = '', previousPeopleState = '', previousChatState = '';
-const counts = new Map(), countStops = new Map(), limits = {teacher:12, student:12};
+const cleanupStops=new Map();
+const occupancy = new Map(), counts = new Map(), countStops = new Map(), limits = {teacher:12, student:12};
 const canvas = $('#board-canvas'), ctx = canvas.getContext('2d');
 const boardError = error => /permission|denied/i.test(error.message || '') ? 'No pudimos acceder a los tableros. Publica las reglas actualizadas de database.rules.json en Firebase.' : error.message || 'No fue posible completar la acción. Inténtalo de nuevo.';
 function roomError(error = '') { const target = $('#board-room-error'); target.textContent = typeof error === 'string' ? error : boardError(error); target.hidden = !target.textContent; }
 async function perform(button, action) { if (button.disabled) return; button.disabled = true; try { await action(); } catch(error) { roomError(error); } finally { button.disabled = false; updateRoom(); } }
-// Cleanup runs while the board directory is open, and on the next visit.
-// Rules independently deny new content access/writes after 45 minutes.
-setInterval(()=>{if(visible && session){renderCatalog();session.cleanExpired(items);}},15000);
+// Cleanup runs while Risio has an authenticated session, including other modules.
+// Rules independently enforce class, group and empty-group deadlines.
+setInterval(()=>{if(session){if(visible)renderCatalog();session.cleanExpired(items,occupancy);}},15000);
 function subscribeDirectory() {
   if (directoryStop) return;
   const stopClock=onValue(ref(database,'.info/serverTimeOffset'),snap=>{if(session)session.clockOffset=snap.val()||0;});
   const stopDirectory = onValue(ref(database,`boardDirectory/${profile.university}`), snapshot => {
     items = Object.entries(snapshot.val() || {}).map(([id,b]) => ({...b,id}));
+    const groups=new Set(items.filter(b=>b.kind==='student').map(b=>b.id));
+    for(const [id,stop] of cleanupStops)if(!groups.has(id)){stop();cleanupStops.delete(id);occupancy.delete(id);}
+    for(const id of groups)if(!cleanupStops.has(id)){
+      cleanupStops.set(id,()=>{});
+      const stop=onValue(ref(database,`boardData/${profile.university}/${id}/slots`),snap=>{
+        occupancy.set(id,snap.val()||{});session.cleanExpired(items,occupancy);if(visible)renderCatalog();
+      },()=>{});
+      cleanupStops.set(id,stop);
+    }
     if(session?.meta && !items.some(b=>b.id===session.meta.id)){session.removed=true;session.present=false;session.error='Este tablero se eliminó. Vuelve a la lista para continuar.';session.state={...session.state,strokes:{},texts:{},live:{},highlights:{},messages:{}};updateRoom();}
     loaded = true; directoryError = ''; renderCatalog();
-    session.cleanExpired(items);
+    session.cleanExpired(items,occupancy);
   }, error => { directoryError = boardError(error); loaded = true; renderCatalog(); });
   directoryStop=()=>{stopDirectory();stopClock();};
 }
@@ -73,15 +83,15 @@ function renderCatalog() {
   const wanted = new Set();
   for (const kind of ['teacher','student']) {
     const filter = $(`[data-board-filter="${kind}"]`).value;
-    const matches = selectBoards(items.filter(b => b.kind === kind && (b.kind!=='student' || session.serverNow < b.createdAt+BOARD_TTL)), {search:$(`[data-board-search="${kind}"]`).value, sort:$(`[data-board-sort="${kind}"]`).value, mine:filter === 'mine', uid:session.uid});
+    const matches = selectBoards(items.filter(b => b.kind === kind && !boardExpired(b,session.serverNow,occupancy.get(b.id))), {search:$(`[data-board-search="${kind}"]`).value, sort:$(`[data-board-sort="${kind}"]`).value, mine:filter === 'mine', uid:session.uid});
     // Occupancy filters subscribe to all matching candidates, not just the current page.
-    const filtered = matches.filter(b => { wanted.add(b.id); const count = counts.get(b.id); return filter === 'online' ? count > 0 : filter === 'available' ? count == null || count < 5 : true; });
+    const filtered = matches.filter(b => { wanted.add(b.id); const count = counts.get(b.id); return filter === 'online' ? count > 0 : filter === 'available' ? count == null || count < (kind==='teacher'?50:5) : true; });
     $(`[data-board-total="${kind}"]`).textContent = filtered.length;
     $(`[data-board-more="${kind}"]`).hidden = filtered.length <= limits[kind];
     const cards = filtered.slice(0,limits[kind]);
     $(`[data-board-grid="${kind}"]`).innerHTML = cards.length ? cards.map(b => {
-      const count = counts.get(b.id), full = kind === 'student' && count >= 5;
-      return `<article class="board-card" data-board-card="${escape(b.id)}"><div class="board-card-heading"><span class="board-kind">${icon(kind === 'teacher' ? 'board' : 'users')}${kind === 'teacher' ? 'Clase' : 'Grupo de estudio'}</span><span class="board-card-tag ${full ? 'full' : ''}">${full ? 'Completo' : b.ownerUid === session.uid ? 'Tu tablero' : 'UPB'}</span></div><h3>${escape(b.title)}</h3><p class="board-course">${escape(b.course)}</p><p class="board-creator">${kind === 'teacher' ? 'Profesor' : 'Creado por'} · ${escape(b.ownerName)}</p><div class="board-card-footer"><span>${icon('users')}${count == null ? '…' : count}${kind === 'student' ? ' / 5 conectados' : ' conectados'}<small>${new Date(b.createdAt).toLocaleDateString('es-CO',{day:'numeric',month:'short',year:'numeric'})}</small></span>${kind==='student' && b.ownerUid===session.uid?`<button type="button" class="board-button board-delete-card" data-board-delete="${escape(b.id)}" aria-label="Borrar ${escape(b.title)}">${icon('trash')}</button>`:''}<button class="board-button ${full ? '' : 'board-enter'}" type="button" data-board-open="${escape(b.id)}" ${full || joining ? 'disabled' : ''}>${full ? 'Sin cupo' : 'Entrar'} ${icon('right')}</button></div></article>`;
+      const count = counts.get(b.id), full = count >= (kind==='teacher'?50:5);
+      return `<article class="board-card" data-board-card="${escape(b.id)}"><div class="board-card-heading"><span class="board-kind">${icon(kind === 'teacher' ? 'board' : 'users')}${kind === 'teacher' ? 'Clase' : 'Grupo de estudio'}</span><span class="board-card-tag ${full ? 'full' : ''}">${full ? 'Completo' : b.ownerUid === session.uid ? 'Tu tablero' : 'UPB'}</span></div><h3>${escape(b.title)}</h3><p class="board-course">${escape(b.course)}</p><p class="board-creator">${kind === 'teacher' ? 'Profesor' : 'Creado por'} · ${escape(b.ownerName)}</p><div class="board-card-footer"><span>${icon('users')}${count == null ? '…' : count}${kind === 'student' ? ' / 5 conectados' : ' / 50 conectados'}<small>${new Date(b.createdAt).toLocaleDateString('es-CO',{day:'numeric',month:'short',year:'numeric'})}</small></span>${b.ownerUid===session.uid?`<button type="button" class="board-button board-delete-card" data-board-delete="${escape(b.id)}" aria-label="Borrar ${escape(b.title)}">${icon('trash')}</button>`:''}<button class="board-button ${full ? '' : 'board-enter'}" type="button" data-board-open="${escape(b.id)}" ${full || joining ? 'disabled' : ''}>${full ? 'Sin cupo' : 'Entrar'} ${icon('right')}</button></div></article>`;
     }).join('') : `<div class="boards-empty">${icon(kind === 'teacher' ? 'board' : 'users')}<h3>${!loaded ? 'Cargando…' : directoryError ? 'No se pudo cargar esta sección' : matches.length || $(`[data-board-search="${kind}"]`).value || filter !== 'all' ? 'No hay coincidencias' : kind === 'teacher' ? 'La próxima clase empieza aquí' : 'Dale un espacio a tu grupo'}</h3><p>${directoryError ? 'Revisa las reglas y vuelve a abrir Tableros para reintentar.' : 'Crea un tablero o cambia la búsqueda y los filtros.'}</p>${profile.requestedRole === kind ? '<button type="button" class="board-button" data-board-create-empty>Crear tablero</button>' : ''}</div>`;
   }
   hydrateIcons(shell);
@@ -91,7 +101,9 @@ function renderCatalog() {
     // Register before attaching the listener so a callback cannot add it twice.
     countStops.set(id, () => {});
     const stop = onValue(ref(database,`boardData/${profile.university}/${id}/${path}`), snap => {
-      const n = new Set(Object.values(snap.val() || {}).map(p => p.uid)).size;
+      const values=snap.val()||{}; const previous=JSON.stringify(occupancy.get(id));occupancy.set(id,values);
+      const n = new Set(activePeople(values).map(p => p.uid)).size;
+      if(previous!==JSON.stringify(values))session.cleanExpired(items,occupancy);
       if (counts.get(id) !== n) { counts.set(id,n); renderCatalog(); }
     }, () => { counts.set(id,undefined); });
     countStops.set(id,stop);
@@ -100,7 +112,7 @@ function renderCatalog() {
 function showCreate() {
   const teacher = profile.requestedRole === 'teacher';
   $('#board-create-description').textContent = teacher ? 'Asigna el tablero a tu clase. Tus estudiantes podrán encontrarlo en UPB y pedir permiso para anotar.' : 'Crea un espacio compartido para estudiar con otras personas de UPB.';
-  $('#board-create-capacity').textContent = teacher ? 'Clase · sin límite fijado por Risio' : 'Grupo · 5 personas · duración de 45 minutos';
+  $('#board-create-capacity').textContent = teacher ? 'Clase · 50 personas · duración de 1 hora' : 'Grupo · 5 personas · duración de 45 minutos';
   $('#board-create-error').hidden = true; $('#board-create-form').reset(); $('#board-create-dialog').showModal(); $('#board-create-title').focus();
 }
 async function openRoom(meta) {
@@ -164,9 +176,9 @@ function updateRoom() {
   $('#board-color-help').textContent=classroom?(session.owner?'Tu color de profesor: azul.':'Azul reservado para el profesor.'):'Elige un color o abre el selector.';
   if(classroom && session.owner){color=TEACHER_BLUE;$('#board-color').value=color;for(const el of shell.querySelectorAll('[data-board-color], #board-color'))el.disabled=true;for(const el of shell.querySelectorAll('[data-board-color]'))el.setAttribute('aria-pressed',String(el.dataset.boardColor===color));}
   for(const el of shell.querySelectorAll('[data-board-color]'))el.hidden=classroom && !session.owner && isBlue(el.dataset.boardColor);
-  $('#board-delete').hidden=!(session.owner && session.meta.kind==='student');
-  $('#board-lifetime').hidden=session.meta.kind!=='student';
-  if(session.meta.kind==='student'){const left=Math.max(0,session.meta.createdAt+BOARD_TTL-session.serverNow);$('#board-lifetime').textContent=`Tiempo restante: ${Math.floor(left/60000)}:${String(Math.floor(left/1000)%60).padStart(2,'0')} · Se elimina a los 45 minutos o tras 2 minutos sin participantes.`;}
+  $('#board-delete').hidden=!session.owner;
+  $('#board-lifetime').hidden=false;
+  {const left=Math.max(0,session.meta.createdAt+boardLifetime(session.meta)-session.serverNow);$('#board-lifetime').textContent=`Tiempo restante: ${Math.floor(left/60000)}:${String(Math.floor(left/1000)%60).padStart(2,'0')} · ${session.meta.kind==='teacher'?'Clase de 1 hora · 50 personas':'Grupo de 45 minutos · caduca tras 2 minutos vacío'}`;}
   const raised=classroom && session.owner?Object.keys(state.hands).filter(uid=>state.participants[uid]):[];
   const alerts=$('#board-hand-alerts');alerts.hidden=!raised.length;
   const alertKey=JSON.stringify(raised.map(uid=>[uid,state.participants[uid].displayName]));
@@ -194,7 +206,7 @@ function updateRoom() {
 function renderPeople() {
   const {state} = session, query = $('#board-people-search').value.trim().toLocaleLowerCase('es');
   const people = Object.values(state.participants).sort((a,b) => Number(Boolean(state.hands[b.uid])) - Number(Boolean(state.hands[a.uid])) || a.displayName.localeCompare(b.displayName,'es'));
-  $('#board-people-count').textContent = `${people.length}${session.meta.kind === 'student' ? ' / 5' : ''}`;
+  $('#board-people-count').textContent = `${people.length}${session.meta.kind === 'student' ? ' / 5' : ' / 50'}`;
   $('#board-people-list').innerHTML = people.filter(p => p.displayName.toLocaleLowerCase('es').includes(query)).map(p => {
     const owner = p.uid === session.meta.ownerUid, permitted = state.permissions[p.uid] || owner || session.meta.kind === 'student';
     return `<div class="board-person"><span class="board-avatar">${escape(p.displayName.slice(0,1).toUpperCase())}</span><div><strong>${escape(p.displayName)}${p.uid === session.uid ? ' (tú)' : ''}</strong><small>${state.hands[p.uid] ? 'Mano levantada' : owner ? session.meta.kind === 'teacher' ? 'Profesor · creador' : 'Creador del grupo' : permitted ? 'Puede anotar' : 'Observando'}</small></div>${session.owner && session.meta.kind === 'teacher' && !owner ? `<button class="board-permission" type="button" data-board-permit="${escape(p.uid)}" ${!session.online ? 'disabled' : ''}>${state.permissions[p.uid] ? 'Retirar permiso' : 'Permitir anotar'}</button>` : state.hands[p.uid] ? icon('hand') : ''}</div>`;
@@ -213,7 +225,7 @@ async function open() {
 }
 async function close() {
   closeTextEditor();await session.leave(); for (const stop of countStops.values()) stop(); countStops.clear();
-  directoryStop?.(); directoryStop = null; visible = false; document.body.classList.remove('boards-screen-open');
+  visible = false; document.body.classList.remove('boards-screen-open');
   $('#btn-home').click(); $('#btn-boards').focus();
 }
 $('#boards-home').addEventListener('click', event => perform(event.currentTarget, close));
@@ -310,7 +322,7 @@ $('#board-delete-confirm').addEventListener('click',async event=>{
 });
 setInterval(()=>{if(visible){if(session.meta)updateRoom();else renderCatalog();}},1000);
 export const boards = {
-  start(nextProfile) { if(profile) return; profile = nextProfile; session = new BoardSession(profile,updateRoom); },
-  async leave() { if(session) await session.leave(); },
+  start(nextProfile) { if(profile) return; profile = nextProfile; session = new BoardSession(profile,updateRoom); subscribeDirectory(); },
+  async leave() { if(session) await session.leave(); directoryStop?.();directoryStop=null;for(const stop of cleanupStops.values())stop();cleanupStops.clear();for(const stop of countStops.values())stop();countStops.clear(); },
   open
 };

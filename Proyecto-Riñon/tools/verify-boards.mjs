@@ -34,7 +34,7 @@ try {
     for(let i=0;i<5;i++) {
       const target = db[uid].ref(`boardData/UPB/group/slots/s${i}`);
       const disconnect = target.onDisconnect();
-      try { await disconnect.remove(); const result = await target.transaction(current=>current===null?presence(uid):undefined, undefined, false); if(result.committed) {await disconnect.cancel();return {uid,slot:`s${i}`};} }
+      try { await disconnect.set({...presence(uid),leftAt:{'.sv':'timestamp'}}); const result = await target.transaction(current=>current===null||current.leftAt?presence(uid):undefined, undefined, false); if(result.committed) {await disconnect.cancel();return {uid,slot:`s${i}`};} }
       catch(error) { if(!(await target.get()).exists()) throw error; }
       await disconnect.cancel();
     }
@@ -53,11 +53,11 @@ try {
   await assertSucceeds(db[accepted[1].uid].ref('boardData/UPB/group/strokes').get());
   await assertFails(db[accepted[1].uid].ref('boardData/UPB/group/strokes/one').remove());
   // Leaving frees the slot while strokes stay stored.
-  await assertSucceeds(db[winner.uid].ref(`boardData/UPB/group/slots/${winner.slot}`).remove());
+  await assertSucceeds(db[winner.uid].ref(`boardData/UPB/group/slots/${winner.slot}`).update({leftAt:{'.sv':'timestamp'}}));
   await assertSucceeds(db[outsider].ref(`boardData/UPB/group/slots/${winner.slot}`).set(presence(outsider)));
   await assertSucceeds(db[outsider].ref('boardData/UPB/group/strokes/one').get());
   // Class boards accept more than five people and require teacher permission for students to draw.
-  for(const uid of people.filter(uid=>uid!=='other')) await assertSucceeds(db[uid].ref(`boardData/UPB/class/participants/${uid}`).set(presence(uid)));
+  for(const [i,uid] of people.filter(uid=>uid!=='other').entries()){await assertSucceeds(db[uid].ref(`boardData/UPB/class/classSlots/c${i}`).set(presence(uid)));await assertSucceeds(db[uid].ref(`boardData/UPB/class/participants/${uid}`).set(presence(uid)));}
   assert.equal((await db.teacher.ref('boardData/UPB/class/participants').get()).numChildren(),8);
   await assertSucceeds(db.teacher.ref('boardData/UPB/class/strokes/teacher').set(stroke('teacher')));
   await assertFails(db.student1.ref('boardData/UPB/class/strokes/no-permission').set(stroke('student1')));
@@ -76,10 +76,10 @@ try {
   await assertSucceeds(db.teacher.ref('boardData/UPB/class/strokes').remove());
   // Abrupt disconnect releases only that connection's reservation.
   const disconnected=db[outsider].ref(`boardData/UPB/group/slots/${winner.slot}`);
-  await disconnected.onDisconnect().remove(); db[outsider].goOffline();
+  await disconnected.onDisconnect().set({...presence(outsider),leftAt:{'.sv':'timestamp'}}); db[outsider].goOffline();
   const observer=db[accepted[1].uid];
-  for(let i=0;i<50;i++) { if(!(await observer.ref(`boardData/UPB/group/slots/${winner.slot}`).get()).exists()) break; await new Promise(r=>setTimeout(r,50)); }
-  assert.equal((await observer.ref(`boardData/UPB/group/slots/${winner.slot}`).get()).exists(),false,'Desconexión libera el cupo');
+  for(let i=0;i<50;i++) { if((await observer.ref(`boardData/UPB/group/slots/${winner.slot}/leftAt`).get()).exists()) break; await new Promise(r=>setTimeout(r,50)); }
+  assert.equal((await observer.ref(`boardData/UPB/group/slots/${winner.slot}/leftAt`).get()).exists(),true,'Desconexión libera el cupo y registra la salida');
   db[outsider].goOnline();
   // Custom RGB is validated server-side; the blue family belongs only to the classroom owner.
   await assertSucceeds(db.teacher.ref('boardData/UPB/class/permissions/student1').set(true));
@@ -122,6 +122,90 @@ try {
   // A stale cleanup attempt cannot remove a newly created active group.
   await assertSucceeds(db.student1.ref('boardDirectory/UPB/group').set({...directory('student1'),createdAt:{'.sv':'timestamp'}}));
   await assertFails(db.student2.ref().update(deletion('group')));
+
+  // Existing 8 + 42 = 50, even with simultaneous extra arrivals.
+  await env.withSecurityRulesDisabled(async ctx=>{
+    for(let i=0;i<44;i++)await ctx.database().ref(`profiles/extra${i}`).set(profile(`extra${i}`));
+  });
+  const joins=await Promise.all(Array.from({length:44},(_,i)=>`extra${i}`).map(async uid=>{
+    try{const db=user(uid);for(let i=8;i<50;i++){const target=db.ref('boardData/UPB/class/classSlots/c'+i);const result=await target.transaction(v=>v===null?presence(uid):undefined,undefined,false);if(result.committed){await db.ref('boardData/UPB/class/participants/'+uid).set(presence(uid));return true;}}return false;}catch{return false;}
+  }));
+  assert.equal(joins.filter(Boolean).length,42);
+  assert.equal((await db.teacher.ref('boardData/UPB/class/participants').get()).numChildren(),50);
+  await assertFails(db.student1.ref().update(deletion('class')));
+  await assertSucceeds(db.teacher.ref().update(deletion('class')));
+  await env.withSecurityRulesDisabled(async ctx=>{
+    await ctx.database().ref('boardDirectory/UPB/hour').set({...directory('teacher','teacher'),createdAt:Date.now()-3600100});
+    await ctx.database().ref('boardData/UPB/hour/participants/teacher').set(presence('teacher'));
+  });
+  await assertFails(db.teacher.ref('boardData/UPB/hour/strokes').get());
+  await assertFails(db.teacher.ref('boardData/UPB/hour/strokes/a').set(stroke('teacher')));
+  await assertFails(db.student1.ref('boardData/UPB/hour/participants/student1').set(presence('student1')));
+  await assertSucceeds(db.student1.ref().update(deletion('hour')));
+  await env.withSecurityRulesDisabled(async ctx=>{
+    for(const id of ['idle','recent','active','never'])await ctx.database().ref('boardDirectory/UPB/'+id).set({...directory(id==='active'?'student7':'student1'),createdAt:Date.now()-300000});
+    await ctx.database().ref('boardData/UPB/idle/slots/s0').set({...presence('student1'),leftAt:Date.now()-120100});
+    await ctx.database().ref('boardData/UPB/recent/slots/s0').set({...presence('student1'),leftAt:Date.now()-1000});
+    await ctx.database().ref('boardData/UPB/active/slots/s0').set(presence('student1'));
+  });
+  await assertFails(db.student2.ref().update(deletion('recent')));
+  await assertFails(db.student2.ref().update(deletion('active')));
+  await assertFails(db.student1.ref('boardData/UPB/active/slots/s0').remove());
+  await assertFails(db.student2.ref('boardData/UPB/active/slots/s0').update({leftAt:{'.sv':'timestamp'}}));
+  await assertSucceeds(db.student1.ref('boardData/UPB/active/slots/s0').update({leftAt:{'.sv':'timestamp'}}));
+  await assertFails(db.student1.ref('boardData/UPB/active/slots/s0').update({leftAt:Date.now()-200000}));
+  await assertFails(db.student2.ref('boardData/UPB/idle/slots/s1').set(presence('student2')));
+  await assertSucceeds(db.student2.ref().update(deletion('idle')));
+  await assertSucceeds(db.student2.ref().update(deletion('never')));
+  await assertSucceeds(db.student2.ref('boardData/UPB/recent/slots/s0').set(presence('student2')));
+
+  // Exercise the actual BoardSession against rules, with only its app/SDK imports injected.
+  const sdk=await import('firebase/database');
+  const utilsURL=new URL('../board-utils.js',import.meta.url).href;
+  const original=fs.readFileSync(new URL('../board-session.js',import.meta.url),'utf8');
+  async function client(uid,role){
+    globalThis.__boardTest={...sdk,auth:{currentUser:{uid}},database:db[uid]._delegate,withTimeout:p=>p};
+    const code=original.replace(/^import .*from '\.\/firebase-client.js';$/m,'const {auth,database,withTimeout,ref,get,set,update,remove,push,onValue,query,limitToLast,runTransaction,onDisconnect,serverTimestamp}=globalThis.__boardTest;')
+      .replace(/^import .*from '\.\/vendor\/firebase-sdk.js';$/m,'').replace("'./board-utils.js'",JSON.stringify(utilsURL));
+    const {BoardSession}=await import('data:text/javascript;base64,'+Buffer.from(code).toString('base64')+'#'+uid);
+    return new BoardSession(profile(uid,role),()=>{});
+  }
+  const teacherClient=await client('teacher','teacher'),studentClient=await client('student2','student');
+  const classMeta=await teacherClient.create('Clase real','Materia real');
+  async function ready(session){for(let i=0;i<80 && !session.present && !session.error;i++)await new Promise(r=>setTimeout(r,25));assert.equal(session.error,'');assert.equal(session.present,true);}
+  await teacherClient.join(classMeta);await ready(teacherClient);
+  await studentClient.join(classMeta);await ready(studentClient);
+  const duplicate=await client('student2','student');
+  await duplicate.join(classMeta);
+  for(let i=0;i<80 && !duplicate.error;i++)await new Promise(r=>setTimeout(r,25));
+  assert.match(duplicate.error,/otra pestaña/);await duplicate.leave();
+  assert.equal((await db.student2.ref('boardData/UPB/'+classMeta.id+'/participants/student2').get()).exists(),true,'Duplicate tab must not remove original participant');
+  await assertFails(db.student2.ref('boardData/UPB/'+classMeta.id+'/classSlots/'+studentClient.classSeat.target.key).remove());
+  await studentClient.leave();await teacherClient.leave();
+  await env.withSecurityRulesDisabled(async ctx=>{assert.equal((await ctx.database().ref('boardData/UPB/'+classMeta.id+'/classSlots').get()).exists(),false);});
+  await teacherClient.deleteBoard(classMeta);
+  const groupMeta=await studentClient.create('Grupo real','Materia real');
+  await studentClient.join(groupMeta);await ready(studentClient);await studentClient.leave();
+  let departedSlots;
+  await env.withSecurityRulesDisabled(async ctx=>{
+    const target=ctx.database().ref('boardData/UPB/'+groupMeta.id+'/slots');departedSlots=(await target.get()).val();
+    const key=Object.keys(departedSlots)[0];assert.ok(departedSlots[key].leftAt>0);
+    departedSlots[key].leftAt=Date.now()-120100;await target.set(departedSlots);
+    await ctx.database().ref('boardDirectory/UPB/'+groupMeta.id+'/createdAt').set(Date.now()-300000);
+  });
+  await studentClient.cleanExpired([{...groupMeta,createdAt:Date.now()-300000}],new Map([[groupMeta.id,departedSlots]]));
+  assert.equal((await db.student2.ref('boardDirectory/UPB/'+groupMeta.id).get()).exists(),false);
+  await assertSucceeds(db.student1.ref('boardDirectory/UPB/disconnect').set({...directory('student1'),createdAt:{'.sv':'timestamp'}}));
+  const departure=db.student1.ref('boardData/UPB/disconnect/slots/s0');
+  await assertSucceeds(departure.onDisconnect().set({...presence('student1'),leftAt:{'.sv':'timestamp'}}));
+  await assertSucceeds(departure.set(presence('student1')));
+  db.student1.goOffline();
+  let leftAt=0;
+  for(let i=0;i<40 && !leftAt;i++){
+    await new Promise(r=>setTimeout(r,50));
+    await env.withSecurityRulesDisabled(async ctx=>{leftAt=(await ctx.database().ref('boardData/UPB/disconnect/slots/s0/leftAt').get()).val();});
+  }
+  assert.ok(leftAt>0,'Last disconnect stores server departure timestamp');
   // Only this request's emulated records were used.
-  console.log('OK: creación directa profesor/estudiante, aislamiento universitario, cinco cupos en carrera, liberación, persistencia, clase con ocho participantes, chat, mano, permisos, revocación, bloqueo al caducar, borrado por propietario y limpieza atómica de vencidos sin Functions.');
+  console.log('OK: creación directa profesor/estudiante, aislamiento universitario, cinco cupos en carrera, liberación, persistencia, clase con 50 participantes y rechazo del 51, chat, mano, permisos, revocación, caducidad de clase a una hora y de grupo tras dos minutos vacío, borrado por propietario y limpieza atómica de vencidos sin Functions.');
 } finally { await env.cleanup(); }

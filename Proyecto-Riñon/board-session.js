@@ -1,6 +1,6 @@
 import {auth, database, withTimeout} from './firebase-client.js';
 import {ref, get, set, update, remove, push, onValue, query, limitToLast, runTransaction, onDisconnect, serverTimestamp} from './vendor/firebase-sdk.js';
-import {SLOT_KEYS, rgb, BOARD_TTL} from './board-utils.js';
+import {SLOT_KEYS, rgb, BOARD_TTL, boardLifetime, boardExpired, boardLimit, activePeople} from './board-utils.js';
 
 export class BoardSession {
   constructor(profile, changed) {
@@ -11,7 +11,7 @@ export class BoardSession {
   path(suffix = '') { return `boardData/${this.profile.university}/${this.meta.id}${suffix ? '/' + suffix : ''}`; }
   get owner() { return this.meta?.ownerUid === this.uid; }
   get canDraw() { return Boolean(!this.removed && !this.expired && this.online && this.present && (this.meta?.kind === 'student' || this.owner || this.state.permissions[this.uid])); }
-  get expired() {return this.meta?.kind==='student' && this.serverNow>=this.meta.createdAt+BOARD_TTL;}
+  get expired() {return Boolean(this.meta && boardExpired(this.meta,this.serverNow));}
   get serverNow() {return Date.now()+(this.clockOffset||0);}
   notify() { this.changed(this); }
   async create(title, course) {
@@ -27,38 +27,67 @@ export class BoardSession {
     await this.leave();
     this.meta = meta;
     this.unsubscribers.push(onValue(ref(database,'.info/serverTimeOffset'),snap=>{this.clockOffset=snap.val()||0;}));
-    this.expiryTimer=setInterval(()=>{if(this.expired){this.present=false;this.error='Este tablero alcanzó sus 45 minutos y ha caducado.';this.state={participants:{},strokes:{},messages:{},permissions:{},hands:{},live:{},texts:{},highlights:{}};this.notify();}},1000); const generation = ++this.generation;
+    this.expiryTimer=setInterval(()=>{if(this.expired){this.present=false;this.error='Este tablero ha alcanzado su duración máxima y ha caducado.';this.state={participants:{},strokes:{},messages:{},permissions:{},hands:{},live:{},texts:{},highlights:{}};this.notify();}},1000); const generation = ++this.generation;
     this.connectionId = push(ref(database)).key;
     this.removed=false;this.error = ''; this.present = false; this.connecting = false; this.notify();
     this.unsubscribers.push(onValue(ref(database, '.info/connected'), snapshot => {
-      this.online = snapshot.val() === true; this.notify();
+      this.online = snapshot.val() === true; if(!this.online){this.classSeat=null;this.present=false;} this.notify();
       if (this.online && !this.connecting) {
         this.connecting = true;
         this.reserve(generation).then(() => {
           if (generation !== this.generation) return;
           this.present = true; this.error = ''; this.subscribe(generation); this.notify();
-        }).catch(error => { if (generation === this.generation) { this.error = error.message; this.present = false; this.notify(); } })
+        }).catch(error => { if (generation === this.generation) { this.releaseClassSeat().catch(()=>{}); this.error = error.message; this.present = false; this.notify(); } })
           .finally(() => { this.connecting = false; });
       }
     }));
   }
+  async releaseClassSeat() {
+    if(!this.classSeat)return;
+    const {target,disconnect}=this.classSeat;this.classSeat=null;
+    await disconnect.cancel();await update(ref(database,this.path()),{[`classSlots/${target.key}`]:null,[`participants/${this.uid}`]:null});
+  }
+  async reserveClassSeat(generation) {
+    if(this.classSeat)return;
+    const occupied=(await withTimeout(get(ref(database,this.path('classSlots'))))).val()||{};
+    for(let i=0;i<50;i++) {
+      const existing=occupied[`c${i}`];
+      if(existing && (existing.uid!==this.uid || existing.connectionId!==this.connectionId))continue;
+      const target=ref(database,this.path(`classSlots/c${i}`)),disconnect=onDisconnect(ref(database,this.path()));
+      try {
+        await withTimeout(disconnect.update({[`classSlots/c${i}`]:null,[`participants/${this.uid}`]:null}));
+        if(existing){this.classSeat={target,disconnect};return;}
+        const record={uid:this.uid,connectionId:this.connectionId,displayName:this.profile.displayName,joinedAt:serverTimestamp()};
+        const result=await withTimeout(runTransaction(target,current=>current===null?record:undefined,{applyLocally:false}));
+        if(result.committed){
+          if(generation!==this.generation){await disconnect.cancel();await remove(target);return;}
+          this.classSeat={target,disconnect};return;
+        }
+      } catch(error) {if(!(await get(target)).exists())throw error;}
+      finally {if(this.classSeat?.target!==target)await disconnect.cancel();}
+    }
+    throw new Error('Esta clase está completa: 50 personas, incluido el profesor.');
+  }
   async reserve(generation) {
     const branch = this.meta.kind === 'student' ? 'slots' : 'participants';
     const data = (await withTimeout(get(ref(database, this.path(branch))))).val() || {};
-    const own = Object.entries(data).find(([,value]) => value.uid === this.uid);
+    const own = Object.entries(data).find(([,value]) => value.uid === this.uid && !value.leftAt);
+    if(!own && activePeople(data).length>=boardLimit(this.meta))throw new Error(`Este tablero está completo: ${boardLimit(this.meta)} personas conectadas.`);
     if (own && own[1].connectionId !== this.connectionId) throw new Error('Ya tienes este tablero abierto en otra pestaña o dispositivo. Sal de allí antes de entrar aquí.');
+    if(this.meta.kind==='teacher') {await this.reserveClassSeat(generation);if(generation!==this.generation)return;}
     const candidates = own ? [own[0]] : this.meta.kind === 'student' ? SLOT_KEYS : [this.uid];
     for (const key of candidates) {
       if (generation !== this.generation) return;
-      if (data[key] && !own) continue;
+      if (data[key] && !data[key].leftAt && !own) continue;
       const target = ref(database, this.path(`${branch}/${key}`));
       const disconnect = onDisconnect(target);
       try {
-        await withTimeout(disconnect.remove());
         const record = {uid: this.uid, connectionId: this.connectionId, displayName: this.profile.displayName, joinedAt: serverTimestamp()};
-        const result = own ? {committed:true} : await withTimeout(runTransaction(target, current => current === null ? record : undefined, {applyLocally:false}));
+        const departed={...record,leftAt:serverTimestamp()};
+        await withTimeout(this.meta.kind==='student'?disconnect.set(departed):disconnect.remove());
+        const result = own ? {committed:true} : await withTimeout(runTransaction(target, current => current === null || current.leftAt ? record : undefined, {applyLocally:false}));
         if (result.committed) {
-          if (generation !== this.generation) { await disconnect.cancel(); await remove(target); return; }
+          if (generation !== this.generation) { await disconnect.cancel(); await (this.meta.kind==='student'?update(target,{leftAt:serverTimestamp()}):remove(target)); return; }
           this.presenceRef = target; this.disconnect = disconnect; return;
         }
       } catch (error) {
@@ -69,7 +98,7 @@ export class BoardSession {
       }
       await disconnect.cancel();
     }
-    throw new Error('Este grupo está completo: hay 5 personas conectadas. Intenta entrar cuando alguien salga.');
+    throw new Error('Este tablero está completo. Intenta entrar cuando alguien salga.');
   }
   subscribe(generation) {
     for (const stop of this.roomSubscriptions || []) stop();
@@ -80,8 +109,8 @@ export class BoardSession {
     }, error => { if (generation === this.generation) { this.error = 'No pudimos sincronizar el tablero. Revisa la conexión y las reglas de Firebase.'; this.present = false; this.notify(); } }));
     const branch = this.meta.kind === 'student' ? 'slots' : 'participants';
     listen(ref(database, this.path(branch)), value => {
-      this.state.participants = Object.fromEntries(Object.values(value).map(p => [p.uid, p]));
-      this.present = Object.values(value).some(p => p.uid === this.uid && p.connectionId === this.connectionId);
+      this.state.participants = Object.fromEntries(activePeople(value).map(p => [p.uid, p]));
+      this.present = activePeople(value).some(p => p.uid === this.uid && p.connectionId === this.connectionId);
     });
     listen(ref(database,this.path('strokes')), value => this.state.strokes = value);
     listen(query(ref(database,this.path('messages')), limitToLast(100)), value => this.state.messages = value);
@@ -121,10 +150,10 @@ export class BoardSession {
     return this.save(()=>set(ref(database,this.path(`highlights/${id}/${this.uid}`)),value));
   }
   async deleteBoard(meta=this.meta) {
-    if(!meta || meta.kind!=='student' || meta.ownerUid!==this.uid)throw new Error('Solo el creador puede eliminar este grupo.');
-    await this.removeStudentBoard(meta);
+    if(!meta || meta.ownerUid!==this.uid)throw new Error('Solo el creador puede eliminar este grupo.');
+    await this.removeBoard(meta);
   }
-  async removeStudentBoard(meta) {
+  async removeBoard(meta) {
     // One atomic update removes metadata AND all shared content. Rules authorize
     // the owner at any time, or another verified campus user after server expiry.
     const university=this.profile.university;
@@ -133,12 +162,12 @@ export class BoardSession {
       [`boardData/${university}/${meta.id}`]:null
     }));
   }
-  async cleanExpired(boards) {
+  async cleanExpired(boards, occupancy=new Map()) {
     if(this.cleaning)return;
     this.cleaning=true;
     try {
-      for(const meta of boards.filter(b=>b.kind==='student' && this.serverNow>=b.createdAt+BOARD_TTL)) {
-        try {await this.removeStudentBoard(meta);} catch(error) {
+      for(const meta of boards.filter(b=>boardExpired(b,this.serverNow,occupancy.get(b.id)))) {
+        try {await this.removeBoard(meta);} catch(error) {
           // A clock estimate never authorizes deletion: Firebase rules use now.
           console.warn('No se pudo limpiar un tablero vencido:',error.code||'connection');
         }
@@ -168,7 +197,8 @@ export class BoardSession {
     for (const stop of [...this.unsubscribers, ...(this.roomSubscriptions || [])]) stop();
     this.unsubscribers = []; this.roomSubscriptions = [];
     // Cancel first, then remove: a stale disconnect must not remove a later reservation.
-    if (this.presenceRef && this.online && !this.removed) { await withTimeout(this.disconnect.cancel()); await withTimeout(remove(this.presenceRef)); }
+    if (this.presenceRef && this.online && !this.removed) { await withTimeout(this.disconnect.cancel()); await withTimeout(this.meta.kind==='student'?update(this.presenceRef,{leftAt:serverTimestamp()}):remove(this.presenceRef)); }
+    await this.releaseClassSeat().catch(()=>{});
     this.presenceRef = null; this.disconnect = null; this.meta = null; this.present = false;
     this.state = {participants:{}, strokes:{}, messages:{}, permissions:{}, hands:{}, live:{}, texts:{}, highlights:{}};
   }
