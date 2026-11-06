@@ -16,7 +16,7 @@ Abre **Tableros** en el inicio o junto a Mi cuenta. Profesores y estudiantes cre
 
 ## Seguridad y nuevos tableros
 
-La configuración de Firebase se proporciona desde `.env.local` o la variable `RISIO_FIREBASE_CONFIG`; el ZIP no contiene la configuración de producción. Consulta `INICIO_FIREBASE.md` antes de ejecutar. Esta versión Spark crea y borra grupos directamente en Realtime Database, sin Cloud Functions ni Blaze. Las reglas bloquean acceso y escritura al cumplir 45 minutos; la app borra los datos vencidos mientras Risio tenga una sesión autenticada abierta o en el siguiente inicio de sesión. Los grupos también caducan tras dos minutos vacíos desde la última salida registrada. No hay borrado físico programado si todos están desconectados; la limpieza se hace al iniciar sesión de nuevo. Las clases docentes duran una hora, admiten 50 personas incluyendo al profesor y el creador puede borrarlas. Incluye selector de color, slider de grosor, texto, resaltador, avances de dibujo en vivo y avisos destacados de mano levantada. En clases, el azul está reservado al profesor.
+La configuración de Firebase se proporciona desde `.env.local` o la variable `RISIO_FIREBASE_CONFIG`; el ZIP no contiene la configuración de producción. Consulta `INICIO_FIREBASE.md` antes de ejecutar. Esta versión Spark crea y borra grupos directamente en Realtime Database, sin Cloud Functions ni Blaze. Las reglas bloquean acceso y escritura al cumplirse la duración elegida al crear el tablero; la app borra los datos vencidos mientras Risio tenga una sesión autenticada abierta o en el siguiente inicio de sesión. Los grupos nuevos duran 20, 40 o 60 minutos y también caducan tras dos minutos vacíos desde la última salida registrada. No hay borrado físico programado si todos están desconectados; la limpieza se hace al iniciar sesión de nuevo. Las clases docentes duran 1, 2, 3 o 4 horas, admiten 50 personas incluyendo al profesor y el creador puede borrarlas. Incluye selector de color, slider de grosor, texto, resaltador, avances de dibujo en vivo y avisos destacados de mano levantada. En clases, el azul está reservado al profesor.
 
 ## Ejecutar en tu computador
 
@@ -214,13 +214,18 @@ Se ejecutaron las pruebas previas de glucosa y filtración. Además, se cargaron
 Fuentes de las descripciones anatómicas: [NIDDK · Los riñones y su funcionamiento](https://www.niddk.nih.gov/health-information/informacion-de-la-salud/enfermedades-rinones/rinones-funcionamiento), [NCBI Bookshelf · Bowman Capsule](https://www.ncbi.nlm.nih.gov/books/NBK554474/) y [NCBI Bookshelf · Renal Blood Flow and Filtration](https://www.ncbi.nlm.nih.gov/books/NBK482248/). Estos enlaces están en la documentación, no en el panel de la aplicación.
 
 
-## Biblioteca: documentos, diagramas y videos
+## Biblioteca / Evaluaciones
 
-En Home, abre **Biblioteca**. Los tres módulos mantienen el estilo del Atlas:
+En Home, abre **Biblioteca / Evaluaciones**. Selecciona **Biblioteca** para consultar los dos módulos:
 
 1. **Libros y documentos:** los seis enlaces originales de Google Drive, todos con apertura en el visor interno, descarga y **Anotar**. Vander ya tiene habilitado el botón de apertura.
-2. **Ilustraciones y diagramas:** tres esquemas SVG locales de anatomía renal, circulación/filtrado y balance de glucosa. Se pueden abrir, descargar y anotar.
-3. **Videos:** 78 clases de Medizi (Dr. Eduardo Paiva), agrupadas en diez temas: celular, muscular, neurofisiología, cardíaca, circulatoria, sanguínea, respiratoria, renal, gastrointestinal y endocrina. El tema inicial es renal, con sus 12 clases divididas en bases anatómicas, filtración, transporte tubular y concentración/depuración/agua. Hay búsqueda por título sin distinguir acentos.
+2. **Videos:** 78 clases de Medizi (Dr. Eduardo Paiva), agrupadas en diez temas: celular, muscular, neurofisiología, cardíaca, circulatoria, sanguínea, respiratoria, renal, gastrointestinal y endocrina. El tema inicial es renal, con sus 12 clases divididas en bases anatómicas, filtración, transporte tubular y concentración/depuración/agua. Hay búsqueda por título sin distinguir acentos.
+
+### Talleres de fisiología renal
+
+En **Evaluaciones** hay seis talleres de práctica, uno por capítulo del libro *Fisiología renal* de Elsi Olaya Estefan. Cada taller tiene cinco preguntas de opción única. Las referencias abren la página correspondiente en el visor de la edición incluida con los talleres. El número corresponde a la hoja del PDF e incluye la portada.
+
+Al entregar, Risio guarda las respuestas del último intento por cuenta y taller en Realtime Database. Puedes consultar el porcentaje, los aciertos, los errores y la explicación de cada respuesta, o repetir el taller. Un intento nuevo sustituye al anterior cuando se confirma el guardado. Publica el archivo actualizado **`database.rules.json`** para habilitar la sincronización con las cuentas verificadas. La corrección se realiza en el navegador y está pensada para práctica formativa.
 
 ### Orden y fuentes del catálogo
 
@@ -230,17 +235,16 @@ Los identificadores, títulos, duraciones y posiciones se obtuvieron directament
 
 ### Anotaciones
 
-El visor tiene color, grosor, borrador, deshacer, limpiar y terminar anotación, como la pizarra del modelo 3D. Usa ratón, lápiz o pantalla táctil. Los trazos se guardan en el almacenamiento local del navegador y se recuperan al abrir el mismo recurso y la misma página o momento. Si el navegador bloquea ese almacenamiento, se mantienen durante la sesión y aparece un aviso. Las anotaciones de Biblioteca son independientes de las de Anatomía, Glucosa y Filtración.
+El visor tiene color, grosor, borrador, deshacer, limpiar y terminar anotación, como la pizarra del modelo 3D. Usa ratón, lápiz o pantalla táctil. Los trazos se guardan en tu cuenta y se recuperan al abrir el mismo recurso y la misma página o momento. El navegador guarda una copia local para sincronizar los cambios pendientes al recuperar la conexión. Las anotaciones de Biblioteca son independientes de las de Anatomía, Glucosa y Filtración.
 
 - **PDF:** el lector abre cada documento en **Página completa**. Usa Anterior/Siguiente o el campo **Página** para navegar. Puedes elegir Ajustar al ancho o los botones de zoom. Anotar permite dibujar sobre la página seleccionada; los trazos se adaptan al zoom y al tamaño de ventana. Termina la anotación para cambiar de página.
 - **Video:** Anotar pausa el reproductor mediante la API oficial de YouTube. Los trazos se asocian al tiempo preciso del video y aparecen como marcadores en **Mis anotaciones**. Al seleccionar un marcador se busca ese momento, se pausa y se recupera la pizarra. Terminar anotación deja el video en pausa; usa los controles del reproductor para continuar. Cerrar el visor detiene y elimina el reproductor.
-- **Diagrama:** abre el esquema y activa Anotar. Sus trazos se guardan separados de los otros recursos.
 
-La pizarra es una capa de la aplicación: no modifica el archivo PDF de Drive ni incorpora los dibujos al PDF descargado. Las capas usan coordenadas normalizadas para adaptarse al tamaño de la ventana. En el lector nuevo, las anotaciones se vinculan a la página y se adaptan al zoom. El visor de respaldo de Drive requiere conservar la misma posición y zoom para recuperar sus trazos. Las anotaciones no se sincronizan entre navegadores ni dispositivos.
+La pizarra es una capa de la aplicación: no modifica el archivo PDF de Drive ni incorpora los dibujos al PDF descargado. Las capas usan coordenadas normalizadas para adaptarse al tamaño de la ventana. En el lector nuevo, las anotaciones se vinculan a la página y se adaptan al zoom. El visor de respaldo de Drive requiere conservar la misma posición y zoom para recuperar sus trazos.
 
 ### Conexión y disponibilidad
 
-Los modelos 3D y los diagramas son locales. Los documentos necesitan acceso a Google Drive y los videos necesitan conexión a YouTube. Los permisos de Drive se mantienen: abrir dentro de la app no vuelve público un documento privado. El enlace **Abrir original** permite resolver un problema de acceso. Si un video deja de estar disponible o el autor impide su reproducción embebida, el visor lo informa y ofrece el enlace original. No se necesita una API key ni instalar dependencias para estas funciones.
+Los modelos 3D son locales. Los documentos necesitan acceso a Google Drive y los videos necesitan conexión a YouTube. Los permisos de Drive se mantienen: abrir dentro de la app no vuelve público un documento privado. El enlace **Abrir original** permite resolver un problema de acceso. Si un video deja de estar disponible o el autor impide su reproducción embebida, el visor lo informa y ofrece el enlace original. No se necesita una API key ni instalar dependencias para estas funciones.
 
 ### Archivos añadidos y cambios
 
@@ -266,7 +270,7 @@ Mientras Biblioteca está abierta, el visor 3D oculto deja de renderizar y avanz
 
 La ventana está centrada y bloquea el desplazamiento del fondo. El lector local de PDF.js abre cada página ajustando sus dimensiones reales a la altura y anchura disponibles. El modo inicial es **Página completa**, con opciones de **Ajustar al ancho**, acercar/alejar y navegación por número de página. La pizarra se coloca sobre la propia página, para conservar la posición de los trazos al cambiar el zoom o el tamaño de la ventana.
 
-PDF.js y sus recursos están incluidos en `Proyecto-Riñon/vendor/pdfjs/`, con su licencia Apache 2.0. Se añaden `library-pdf.js` (lector) y `library-pdf-proxy.mjs` (entrega por bloques desde Drive). Ejecutar `npm start` inicia también esa ruta local; no hace falta instalar paquetes, Python, claves ni otros programas. El servidor solo permite los seis documentos del catálogo. La carga combina transmisión progresiva y solicitudes por rangos para que los libros grandes puedan abrirse con fluidez; no se incluyen copias de los libros dentro del ZIP.
+PDF.js y sus recursos están incluidos en `Proyecto-Riñon/vendor/pdfjs/`, con su licencia Apache 2.0. Se añaden `library-pdf.js` (lector) y `library-pdf-proxy.mjs` (entrega por bloques desde Drive). Ejecutar `npm start` inicia también esa ruta local; no hace falta instalar paquetes, Python, claves ni otros programas. El servidor solo permite los seis documentos del catálogo. La carga combina transmisión progresiva y solicitudes por rangos para que los libros grandes puedan abrirse con fluidez; los libros de ese catálogo se abren desde Drive. La edición de referencia de los talleres se incluye como un PDF local y abre también en GitHub Pages.
 
 Para publicar el lector en un hosting estático, la apertura directa depende de que Drive permita las solicitudes desde el dominio. Si Drive las bloquea, se conserva el visor de respaldo. Para ofrecer el lector nuevo con el mismo comportamiento de la prueba local, publica también el servidor Node o una ruta equivalente `/api/library-pdf/:id`.
 

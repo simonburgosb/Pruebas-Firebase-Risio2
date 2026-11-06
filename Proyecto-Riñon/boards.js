@@ -3,8 +3,9 @@ import {darkMode, readableInk} from './theme.js';
 import {auth, database} from './firebase-client.js';
 import {ref, onValue} from './vendor/firebase-sdk.js';
 import {hydrateIcons, iconMarkup} from './icons.js';
+import {BOARD_MODELS, MIN_MODEL_SIZE, MAX_MODEL_SIZE, boardModelSize} from './board-model-catalog.js';
 import {BoardSession} from './board-session.js';
-import {selectBoards, parseStroke, rgb, inkColor, isBlue, TEACHER_BLUE, BOARD_TTL, boardLimit, boardLifetime, boardExpired, activePeople} from './board-utils.js';
+import {selectBoards, parseStroke, rgb, inkColor, isBlue, TEACHER_BLUE, CLASS_DURATION_MINUTES, STUDENT_DURATION_MINUTES, defaultBoardMinutes, boardLimit, boardLifetime, boardExpired, activePeople} from './board-utils.js';
 
 const $ = selector => document.querySelector(selector);
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -25,10 +26,22 @@ shell.innerHTML = `
     </div>
   </div>
   <section id="board-room" class="board-room" aria-labelledby="board-room-title" hidden>
-    <header class="board-room-header"><div><button id="board-back-list" type="button" class="board-text-button">${icon('left')} Todos los tableros</button><h1 id="board-room-title" tabindex="-1"></h1><p id="board-room-subtitle"></p></div><div class="board-room-actions"><span id="board-save-state" role="status" aria-live="polite"></span><button id="board-delete" class="board-button" type="button" hidden>${icon('trash')} Borrar tablero</button><button id="board-export" class="board-button" type="button">${icon('save')} Descargar PNG</button></div></header>
+    <header class="board-room-header"><div><button id="board-back-list" type="button" class="board-text-button">${icon('left')} Todos los tableros</button><h1 id="board-room-title" tabindex="-1"></h1><p id="board-room-subtitle"></p></div><div class="board-room-actions"><span id="board-save-state" role="status" aria-live="polite"></span><button id="board-delete" class="board-button" type="button" hidden>${icon('trash')} Borrar tablero</button><button id="board-wide" class="board-button" type="button" aria-pressed="false">Vista amplia</button><button id="board-export" class="board-button" type="button">${icon('save')} Descargar PNG</button></div></header>
     <div id="board-hand-alerts" class="board-hand-alerts" role="status" aria-live="polite" hidden></div><p id="board-lifetime" class="board-lifetime" hidden></p>
     <p id="board-room-error" role="alert" hidden></p>
     <div class="board-workspace"><div class="board-drawing-area">
+      <section id="board-models" class="board-models" aria-labelledby="board-models-heading" hidden>
+        <div class="board-models-header">
+          <div><h2 id="board-models-heading">${icon('kidney')} Anatomía 3D</h2><p id="board-models-help">Abre un modelo para explorar sus estructuras.</p></div>
+          <form id="board-model-form" hidden>
+            <label class="sr-board-only" for="board-model-picker">Modelo anatómico para compartir</label>
+            <select id="board-model-picker" required></select>
+            <button class="board-button board-primary" type="submit">${icon('plus')} Agregar</button>
+          </form>
+          <button id="board-model-ink" class="board-button" type="button" aria-pressed="false" hidden>${icon('pencil')} Anotar sobre 3D</button>
+        </div>
+        <ul id="board-model-list"></ul>
+      </section>
       <div class="board-toolbar" role="toolbar" aria-label="Herramientas del tablero">
         <div class="board-tool-switch"><button class="board-button" data-board-tool="pen" aria-pressed="true" type="button">${icon('pencil')} Lápiz</button><button class="board-button" data-board-tool="highlighter" aria-pressed="false" type="button">${icon('highlight')} Resaltador</button><button class="board-button" data-board-tool="text" aria-pressed="false" type="button">${icon('text')} Texto</button></div>
         <div class="board-colors" aria-label="Colores">${[['#8c2626','Rojo oscuro'],['#302b28','Negro'],['#e57232','Naranja'],['#c99512','Amarillo'],['#23756a','Verde azulado'],['#3b8a39','Verde'],['#a23b72','Rosa'],['#285c9b','Azul']].map(([color,name],i)=>`<button type="button" data-board-color="${color}" aria-label="${name}" title="${name}" aria-pressed="${i===0}" style="--ink:${color}"></button>`).join('')}<label class="board-custom-color">Otro color<input id="board-color" type="color" value="#8c2626" aria-label="Elegir cualquier color"></label></div>
@@ -36,12 +49,27 @@ shell.innerHTML = `
         <label class="board-width">Grosor <input id="board-width" type="range" min="1" max="30" value="4" aria-label="Grosor de línea"><output id="board-width-value">4</output></label>
         <button id="board-undo" class="board-button" type="button">${icon('undo')} Deshacer</button><button id="board-clear" class="board-button" type="button" hidden>${icon('trash')} Vaciar</button>
       </div>
-      <div class="board-paper-wrapper"><section id="board-text-dialog" class="board-text-editor" role="region" aria-label="Editar texto en el tablero" hidden><form id="board-text-form"><div class="board-text-editor-heading"><strong>Caja de texto</strong><span>Escribe directamente aquí</span></div><label>Texto<textarea id="board-text-value" maxlength="2000" rows="4" required placeholder="Escribe una idea para el tablero…"></textarea></label><label>Tamaño <input id="board-text-size" type="range" min="14" max="48" value="24"></label><p id="board-text-error" role="alert" hidden></p><div class="board-room-actions"><button id="board-text-cancel" type="button" class="board-button">Cancelar</button><button type="submit" class="board-button board-primary">Guardar texto</button></div></form></section><canvas id="board-canvas" width="1600" height="1000" aria-label="Lienzo compartido para anotar"></canvas><div class="board-blank" id="board-blank">${icon('pencil')}<strong>Aquí empiezan las ideas</strong><span id="board-blank-help">Escribe o dibuja en este espacio.</span></div></div>
+      <div class="board-paper-wrapper">
+        <section id="board-text-dialog" class="board-text-editor" role="region" aria-label="Editar texto en el tablero" hidden><form id="board-text-form"><div class="board-text-editor-heading"><strong>Caja de texto</strong><span>Escribe directamente aquí</span></div><label>Texto<textarea id="board-text-value" maxlength="2000" rows="4" required placeholder="Escribe una idea para el tablero…"></textarea></label><label>Tamaño <input id="board-text-size" type="range" min="14" max="48" value="24"></label><p id="board-text-error" role="alert" hidden></p><div class="board-room-actions"><button id="board-text-cancel" type="button" class="board-button">Cancelar</button><button type="submit" class="board-button board-primary">Guardar texto</button></div></form></section>
+        <div id="board-sheet">
+          <div id="board-model-layer" hidden></div>
+          <canvas id="board-canvas" width="1600" height="1000" aria-label="Lienzo compartido para anotar"></canvas>
+        </div>
+        <aside id="board-model-info" class="board-model-info" role="status" hidden><strong></strong><span></span></aside>
+        <div class="board-blank" id="board-blank">${icon('pencil')}<strong>Aquí empiezan las ideas</strong><span id="board-blank-help">Escribe o dibuja en este espacio.</span></div>
+      </div>
       <div class="board-canvas-footer"><span id="board-draw-status"></span><button id="board-hand" class="board-button" type="button" aria-pressed="false" hidden>${icon('hand')} Levantar la mano</button></div>
     </div><aside class="board-sidebar" aria-label="Participantes y chat"><section class="board-people"><h2>${icon('users')} Participantes <span id="board-people-count">0</span></h2><label class="board-search">${icon('search')}<input id="board-people-search" type="search" placeholder="Buscar participante" aria-label="Buscar participante"></label><div id="board-people-list"></div></section><section class="board-chat"><h2>${icon('chat')} Chat del tablero</h2><div id="board-chat-list" class="board-chat-list" role="log" aria-label="Mensajes del tablero" aria-live="polite"></div><form id="board-chat-form"><label class="sr-board-only" for="board-chat-input">Mensaje</label><input id="board-chat-input" maxlength="1000" placeholder="Escribe un mensaje…" required autocomplete="off"><button class="board-button" type="submit" aria-label="Enviar mensaje">${icon('right')}</button></form></section></aside></div>
   </section>
-  <dialog id="board-create-dialog" class="board-dialog"><form id="board-create-form"><div class="board-dialog-heading"><span class="board-eyebrow">UN NUEVO ESPACIO</span><button type="button" class="board-icon-button" id="board-create-close" aria-label="Cerrar">${icon('close')}</button></div><h2>Crear tablero</h2><p id="board-create-description"></p><label>Título del tablero<input id="board-create-title" name="title" required minlength="2" maxlength="100" placeholder="Ej. Nombre de la clase o de la materia"></label><label>Clase o materia<input name="course" required minlength="2" maxlength="100" placeholder="Ej. Fisiología renal · Grupo 01"></label><div class="board-create-university">${icon('users')} UPB <span id="board-create-capacity"></span></div><p id="board-create-error" role="alert" hidden></p><button id="board-create-submit" class="board-button board-primary" type="submit">Crear y abrir tablero</button></form></dialog>
-  <dialog id="board-delete-dialog" class="board-dialog"><h2>¿Borrar este tablero?</h2><p>Se eliminarán definitivamente el lienzo, los textos, el chat y los participantes de este tablero.</p><p id="board-delete-error" role="alert" hidden></p><div class="board-room-actions"><button id="board-delete-cancel" type="button" class="board-button">Cancelar</button><button id="board-delete-confirm" type="button" class="board-button board-primary">Borrar tablero</button></div></dialog>
+  <dialog id="board-create-dialog" class="board-dialog"><form id="board-create-form"><div class="board-dialog-heading"><span class="board-eyebrow">UN NUEVO ESPACIO</span><button type="button" class="board-icon-button" id="board-create-close" aria-label="Cerrar">${icon('close')}</button></div><h2>Crear tablero</h2><p id="board-create-description"></p><label>Título del tablero<input id="board-create-title" name="title" required minlength="2" maxlength="100" placeholder="Ej. Nombre de la clase o de la materia"></label><label>Clase o materia<input name="course" required minlength="2" maxlength="100" placeholder="Ej. Fisiología renal · Grupo 01"></label><div class="board-duration">
+      <div class="board-duration-heading"><label for="board-create-duration">Duración del tablero</label><output id="board-create-time" for="board-create-duration"></output></div>
+      <div class="board-duration-control">
+        <div class="board-duration-track" aria-hidden="true"></div>
+        <input id="board-create-duration" name="durationMinutes" type="range">
+        <div class="board-duration-marks" aria-hidden="true"></div>
+      </div>
+    </div><div class="board-create-university">${icon('users')} UPB <span id="board-create-capacity"></span></div><p id="board-create-error" role="alert" hidden></p><button id="board-create-submit" class="board-button board-primary" type="submit">Crear y abrir tablero</button></form></dialog>
+  <dialog id="board-delete-dialog" class="board-dialog"><h2>¿Borrar este tablero?</h2><p>Se eliminarán definitivamente el lienzo, los textos, los modelos compartidos, el chat y los participantes de este tablero.</p><p id="board-delete-error" role="alert" hidden></p><div class="board-room-actions"><button id="board-delete-cancel" type="button" class="board-button">Cancelar</button><button id="board-delete-confirm" type="button" class="board-button board-primary">Borrar tablero</button></div></dialog>
   <dialog id="board-clear-dialog" class="board-dialog"><h2>¿Vaciar el lienzo compartido?</h2><p>Se eliminarán los trazos, textos y resaltados de este tablero. Los mensajes del chat se conservarán.</p><div class="board-room-actions"><button class="board-button" id="board-clear-cancel" type="button">Cancelar</button><button class="board-button board-primary" id="board-clear-confirm" type="button">Vaciar lienzo</button></div></dialog>
 `;
 $('.main-container').append(shell); hydrateIcons(shell);
@@ -49,6 +77,12 @@ let profile, session, directoryStop, visible = false, loaded = false, items = []
 let textSaving=false;
 let tool='pen', textTarget=null, deleteTarget=null, textBoxes=[], lastLiveAt=0;
 let color = '#8c2626', gesture = null, previousStrokeState = '', previousPeopleState = '', previousChatState = '';
+const durationInput = $('#board-create-duration');
+const modelLayer = $('#board-model-layer'), modelInkButton = $('#board-model-ink');
+let sharedModels = new Map(), modelViewer, modelViewerLoad;
+const modelSizeRequests = new Map();
+const modelForm = $('#board-model-form'), modelPicker = $('#board-model-picker');
+let modelKey = '', modelSaving = false;
 const cleanupStops=new Map();
 const occupancy = new Map(), counts = new Map(), countStops = new Map(), limits = {teacher:12, student:12};
 const canvas = $('#board-canvas'), ctx = canvas.getContext('2d');
@@ -72,7 +106,7 @@ function subscribeDirectory() {
       },()=>{});
       cleanupStops.set(id,stop);
     }
-    if(session?.meta && !items.some(b=>b.id===session.meta.id)){session.removed=true;session.present=false;session.error='Este tablero se eliminó. Vuelve a la lista para continuar.';session.state={...session.state,strokes:{},texts:{},live:{},highlights:{},messages:{}};updateRoom();}
+    if(session?.meta && !items.some(b=>b.id===session.meta.id)){session.removed=true;session.present=false;session.error='Este tablero se eliminó. Vuelve a la lista para continuar.';session.state={...session.state,strokes:{},texts:{},live:{},highlights:{},messages:{},models:{}};updateRoom();}
     loaded = true; directoryError = ''; renderCatalog();
     session.cleanExpired(items,occupancy);
   }, error => { directoryError = boardError(error); loaded = true; renderCatalog(); });
@@ -111,15 +145,41 @@ function renderCatalog() {
     countStops.set(id,stop);
   }
 }
+function durationLabel(minutes, teacher) {
+  if (!teacher) return `${minutes} min`;
+  return minutes === 60 ? '1 hora' : `${minutes / 60} horas`;
+}
+function updateCreateDuration() {
+  const minutes = durationInput.valueAsNumber;
+  const label = durationLabel(minutes, profile.requestedRole === 'teacher');
+  $('#board-create-time').value = label;
+  durationInput.setAttribute('aria-valuetext', label);
+  const progress = (minutes - Number(durationInput.min)) / (Number(durationInput.max) - Number(durationInput.min));
+  durationInput.parentElement.style.setProperty('--duration-progress', `${progress * 100}%`);
+}
+durationInput.addEventListener('input', updateCreateDuration);
 function showCreate() {
   const teacher = profile.requestedRole === 'teacher';
   $('#board-create-description').textContent = teacher ? 'Asigna el tablero a tu clase. Tus estudiantes podrán encontrarlo en UPB y pedir permiso para anotar.' : 'Crea un espacio compartido para estudiar con otras personas de UPB.';
-  $('#board-create-capacity').textContent = teacher ? 'Clase · 50 personas · duración de 1 hora' : 'Grupo · 5 personas · duración de 45 minutos';
-  $('#board-create-error').hidden = true; $('#board-create-form').reset(); $('#board-create-dialog').showModal(); $('#board-create-title').focus();
+  $('#board-create-capacity').textContent = teacher ? 'Clase · 50 personas' : 'Grupo · 5 personas';
+  $('#board-create-error').hidden = true;
+  $('#board-create-form').reset();
+  const durations = teacher ? CLASS_DURATION_MINUTES : STUDENT_DURATION_MINUTES;
+  durationInput.min = durations[0];
+  durationInput.max = durations.at(-1);
+  durationInput.step = durations[1] - durations[0];
+  durationInput.value = defaultBoardMinutes(profile.requestedRole);
+  $('.board-duration-marks').innerHTML = durations.map(minutes => `<span>${durationLabel(minutes, teacher)}</span>`).join('');
+  updateCreateDuration();
+  $('#board-create-dialog').showModal();
+  $('#board-create-title').focus();
 }
 async function openRoom(meta) {
   document.body.classList.add('board-room-open');
+  setWideView(false);
   boardGestures.reset();
+  setSharedModels(new Map());
+  modelKey = '';
   joining = true; roomError(); previousStrokeState = ''; previousPeopleState = ''; previousChatState = ''; gesture = null;
   $('#boards-catalog').hidden = true; $('#board-room').hidden = false;
   $('#board-room-title').textContent = meta.title; $('#board-room-subtitle').textContent = `${meta.course} · ${meta.kind === 'teacher' ? 'Clase de ' : 'Grupo de '}${meta.ownerName} · UPB`;
@@ -149,7 +209,7 @@ function drawText(id,value) {
   textBoxes.push({id,x:x/1600,y:y/1000,width:width/1600,height:height/1000});
 }
 function repaint() {
-  ctx.globalAlpha=1;ctx.fillStyle=darkMode()?'#191b1f':'#ffffff';ctx.fillRect(0,0,1600,1000);textBoxes=[];
+  ctx.globalAlpha=1;ctx.clearRect(0,0,canvas.width,canvas.height);textBoxes=[];
   const strokes=Object.values(session?.state.strokes||{}),live=Object.entries(session?.state.live||{}).filter(([uid])=>uid!==session.uid).map(([,v])=>v);
   for(const stroke of [...strokes,...live].filter(s=>s.tool!=='highlighter'))drawStroke(stroke);
   for(const [id,value]of Object.entries(session?.state.texts||{}))drawText(id,value);
@@ -164,9 +224,154 @@ function chooseColor(next){
   }
   color=next;$('#board-color').value=color;for(const button of shell.querySelectorAll('[data-board-color]'))button.setAttribute('aria-pressed',String(button.dataset.boardColor===color));
 }
+function updateBoardModels() {
+  const sizes = new Map();
+  for (const id of Object.keys(BOARD_MODELS)) {
+    const size = boardModelSize(session.state.models[id]);
+    if (size) sizes.set(id, size);
+  }
+  const shared = [...sizes.keys()];
+  const canManage = session.allowsModelSharing;
+  const active = !session.removed && !session.expired;
+  const editable = session.canShareModels;
+  $('#board-models').hidden = !active || (!canManage && !shared.length);
+  modelForm.hidden = !canManage;
+  setSharedModels(active ? sizes : new Map());
+  modelInkButton.hidden = !session.canDraw || !sharedModels.size;
+  if (modelInkButton.hidden) setModelInk(false);
+
+  const key = JSON.stringify([shared, canManage, editable]);
+  modelForm.querySelector('button').disabled = !editable || shared.length === Object.keys(BOARD_MODELS).length || modelSaving;
+  if (key === modelKey) { updateModelSizeButtons(); return; }
+  modelKey = key;
+  const previous = modelPicker.value;
+  const available = Object.entries(BOARD_MODELS).filter(([id]) => !shared.includes(id));
+  modelPicker.innerHTML = available.length
+    ? '<option value="">Elige un modelo</option>' + available.map(([id, model]) => `<option value="${id}">${model.label}</option>`).join('')
+    : '<option value="">Todos los modelos agregados</option>';
+  if (available.some(([id]) => id === previous)) modelPicker.value = previous;
+  modelPicker.disabled = !editable || !available.length;
+  $('#board-models-help').textContent = shared.length ? 'Usa − y + para ajustar el tamaño compartido. Pulsa el nombre para reencuadrar.' : 'Comparte un modelo anatómico con el grupo.';
+  const list = $('#board-model-list');
+  list.innerHTML = shared.map(id => {
+    const { label } = BOARD_MODELS[id];
+    return `<li><button type="button" class="board-button" data-board-model="${id}" aria-controls="board-model-layer">${icon('kidney')} ${label}</button>${canManage
+      ? `<button type="button" class="board-button" data-board-resize="${id}" data-step="-1" aria-label="Reducir ${label}">${icon('minus')}</button>
+        <span class="board-model-size" data-board-size="${id}"></span>
+        <button type="button" class="board-button" data-board-resize="${id}" data-step="1" aria-label="Agrandar ${label}">${icon('plus')}</button>
+        <button type="button" class="board-button" aria-label="Quitar ${label} del tablero" data-board-unshare="${id}" ${editable ? '' : 'disabled'}>${icon('close')}</button>`
+      : ''}</li>`;
+  }).join('');
+  hydrateIcons(list);
+  updateModelSizeButtons();
+}
+
+function updateModelSizeButtons() {
+  for (const label of shell.querySelectorAll('[data-board-size]')) {
+    const size = `${sharedModels.get(label.dataset.boardSize)} %`;
+    if (label.textContent !== size) label.textContent = size;
+  }
+  for (const button of shell.querySelectorAll('[data-board-resize]')) {
+    const id = button.dataset.boardResize, size = sharedModels.get(id);
+    button.disabled = !size || !session.canShareModels || modelSizeRequests.has(id)
+      || (button.dataset.step === '1' ? size >= MAX_MODEL_SIZE : size <= MIN_MODEL_SIZE);
+  }
+}
+
+function setModelInk(enabled) {
+  modelInkButton.setAttribute('aria-pressed', String(enabled));
+  modelLayer.classList.toggle('board-model-ink-through', enabled);
+  if (enabled) modelViewer?.stopHover();
+}
+modelInkButton.addEventListener('click', () => setModelInk(modelInkButton.getAttribute('aria-pressed') !== 'true'));
+
+function loadModelViewer() {
+  if (!modelViewerLoad) {
+    const load = import('./board-model-viewer.js').then(({ mountBoardModels }) => {
+      if (modelViewerLoad !== load) return;
+      modelViewer = mountBoardModels(modelLayer, $('#board-model-info'));
+      modelViewer.sync(sharedModels);
+    }).catch(error => {
+      if (modelViewerLoad !== load) return;
+      modelViewerLoad = null;
+      console.error('Error al abrir el visor del tablero:', error);
+      roomError('No se pudo abrir el visor 3D en este navegador.');
+    });
+    modelViewerLoad = load;
+  }
+  return modelViewerLoad;
+}
+
+function setSharedModels(models) {
+  if (models.size === sharedModels.size && [...models].every(([id, size]) => sharedModels.get(id) === size)) return;
+  sharedModels = models;
+  modelLayer.hidden = !models.size;
+  if (!models.size) {
+    modelSizeRequests.clear();
+    modelViewerLoad = null;
+    modelViewer?.dispose();
+    modelViewer = null;
+    setModelInk(false);
+  } else if (modelViewer) {
+    modelViewer.sync(models);
+  } else {
+    loadModelViewer();
+  }
+}
+
+async function focusSharedModel(id) {
+  if (!sharedModels.has(id)) return;
+  setModelInk(false);
+  const loading = loadModelViewer();
+  await loading;
+  if (modelViewerLoad !== loading || !sharedModels.has(id)) return;
+  if (boardGestures.scale !== 1) boardGestures.reset();
+  modelViewer?.focus(id);
+}
+
+modelForm.addEventListener('submit', async event => {
+  event.preventDefault();
+  if (!modelPicker.value || modelSaving || !session.canShareModels) return;
+  const id = modelPicker.value, boardId = session.meta.id;
+  modelSaving = true;
+  updateBoardModels();
+  try {
+    await session.shareModel(id, true);
+    if (session.meta?.id === boardId) await focusSharedModel(id);
+  }
+  catch (error) { roomError(error); }
+  finally { modelSaving = false; if (session?.meta) updateBoardModels(); }
+});
+async function changeModelSize(button) {
+  if (button.disabled) return;
+  const id = button.dataset.boardResize, request = Symbol();
+  modelSizeRequests.set(id, request);
+  updateModelSizeButtons();
+  try {
+    await session.resizeModel(id, Number(button.dataset.step));
+  } catch (error) {
+    if (modelSizeRequests.get(id) === request) roomError(error);
+  } finally {
+    if (modelSizeRequests.get(id) === request) {
+      modelSizeRequests.delete(id);
+      updateModelSizeButtons();
+    }
+  }
+}
+
+$('#board-model-list').addEventListener('click', event => {
+  const open = event.target.closest('[data-board-model]');
+  const remove = event.target.closest('[data-board-unshare]');
+  const resize = event.target.closest('[data-board-resize]');
+  if (resize) changeModelSize(resize);
+  if (open) focusSharedModel(open.dataset.boardModel);
+  if (remove) perform(remove, () => session.shareModel(remove.dataset.boardUnshare, false));
+});
+
 function updateRoom() {
   if (!session?.meta) return;
   const {state} = session, online = session.online && session.present;
+  updateBoardModels();
   if (!session.canDraw && gesture) { gesture = null; session.finishLive().catch(()=>{});repaint(); }
   $('#board-save-state').textContent = !session.online ? 'Sin conexión' : session.error ? 'No conectado al tablero' : !session.present ? 'Conectando…' : session.pending.size ? 'Guardando…' : 'Todo guardado';
   $('#board-save-state').dataset.state = online && !session.pending.size ? 'saved' : 'pending';
@@ -182,7 +387,12 @@ function updateRoom() {
   for(const el of shell.querySelectorAll('[data-board-color]'))el.hidden=classroom && !session.owner && isBlue(el.dataset.boardColor);
   $('#board-delete').hidden=!session.owner;
   $('#board-lifetime').hidden=false;
-  {const left=Math.max(0,session.meta.createdAt+boardLifetime(session.meta)-session.serverNow);$('#board-lifetime').textContent=`Tiempo restante: ${Math.floor(left/60000)}:${String(Math.floor(left/1000)%60).padStart(2,'0')} · ${session.meta.kind==='teacher'?'Clase de 1 hora · 50 personas':'Grupo de 45 minutos · caduca tras 2 minutos vacío'}`;}
+  const lifetime = boardLifetime(session.meta);
+  const seconds = Math.max(0, Math.ceil((session.meta.createdAt + lifetime - session.serverNow) / 1000));
+  const clock = [Math.floor(seconds / 3600), Math.floor(seconds / 60) % 60, seconds % 60]
+    .map(value => String(value).padStart(2, '0')).join(':');
+  const idleNotice = classroom ? '' : ' · Caduca tras 2 minutos vacío';
+  $('#board-lifetime').textContent = `Tiempo restante: ${clock} · Duración: ${lifetime / 60000} min${idleNotice}`;
   const raised=classroom && session.owner?Object.keys(state.hands).filter(uid=>state.participants[uid]):[];
   const alerts=$('#board-hand-alerts');alerts.hidden=!raised.length;
   const alertKey=JSON.stringify(raised.map(uid=>[uid,state.participants[uid].displayName]));
@@ -195,7 +405,7 @@ function updateRoom() {
   $('#board-chat-input').disabled = !online; $('#board-chat-form button').disabled = !online;
   const strokeState = JSON.stringify([state.strokes,state.live,state.texts,state.highlights]);
   if (strokeState !== previousStrokeState) { previousStrokeState = strokeState; repaint(); }
-  $('#board-blank').hidden = Boolean(Object.keys(state.strokes).length || Object.keys(state.texts).length || Object.keys(state.live).length || gesture || !$('#board-text-dialog').hidden);
+  $('#board-blank').hidden = Boolean(sharedModels.size || Object.keys(state.strokes).length || Object.keys(state.texts).length || Object.keys(state.live).length || gesture || !$('#board-text-dialog').hidden);
   const peopleState = JSON.stringify([state.participants,state.permissions,state.hands,$('#board-people-search').value,session.online]);
   if (peopleState !== previousPeopleState) { previousPeopleState = peopleState; renderPeople(); }
   const chatState = JSON.stringify(state.messages);
@@ -217,7 +427,7 @@ function renderPeople() {
   }).join('') || '<p class="board-chat-empty">No hay participantes que coincidan.</p>';
   hydrateIcons($('#board-people-list'));
 }
-async function list() { document.body.classList.remove('board-room-open'); closeTextEditor(); await session.leave(); gesture = null; $('#board-room').hidden = true; $('#boards-catalog').hidden = false; renderCatalog(); $('#boards-title').focus(); }
+async function list() { document.body.classList.remove('board-room-open'); closeTextEditor(); await session.leave(); setSharedModels(new Map()); gesture = null; $('#board-room').hidden = true; $('#boards-catalog').hidden = false; renderCatalog(); $('#boards-title').focus(); }
 async function open() {
   if (!profile || visible) return;
   $('#library-reader-close')?.click(); $('#btn-home').click();
@@ -229,7 +439,7 @@ async function open() {
 }
 async function close() {
   document.body.classList.remove('board-room-open');
-  closeTextEditor();await session.leave(); for (const stop of countStops.values()) stop(); countStops.clear();
+  closeTextEditor();await session.leave();setSharedModels(new Map()); for (const stop of countStops.values()) stop(); countStops.clear();
   visible = false; document.body.classList.remove('boards-screen-open');
   $('#btn-home').click(); $('#btn-boards').focus();
 }
@@ -239,7 +449,7 @@ $('#boards-create').addEventListener('click',showCreate); $('#board-create-close
 $('#board-create-form').addEventListener('submit', async event => {
   event.preventDefault(); const button = $('#board-create-submit'); if(button.disabled) return; button.disabled = true;
   $('#board-create-error').hidden = true;
-  try { const data = new FormData(event.currentTarget), meta = await session.create(String(data.get('title')),String(data.get('course'))); $('#board-create-dialog').close(); await openRoom(meta); }
+  try { const data = new FormData(event.currentTarget), meta = await session.create(String(data.get('title')),String(data.get('course')), Number(data.get('durationMinutes'))); $('#board-create-dialog').close(); await openRoom(meta); }
   catch(error) { $('#board-create-error').textContent = boardError(error); $('#board-create-error').hidden = false; }
   finally { button.disabled = false; }
 });
@@ -247,7 +457,7 @@ shell.addEventListener('click', event => {
   const openButton = event.target.closest('[data-board-open]'); if (openButton) { const meta = items.find(b => b.id === openButton.dataset.boardOpen); if (meta) perform(openButton,() => openRoom(meta)); }
   const del=event.target.closest('[data-board-delete]');if(del)confirmDelete(items.find(b=>b.id===del.dataset.boardDelete));
   const grant=event.target.closest('[data-board-grant]');if(grant)perform(grant,()=>session.permission(grant.dataset.boardGrant,true));
-  const selectedTool=event.target.closest('[data-board-tool]');if(selectedTool){tool=selectedTool.dataset.boardTool;for(const button of shell.querySelectorAll('[data-board-tool]'))button.setAttribute('aria-pressed',String(button===selectedTool));updateRoom();}
+  const selectedTool=event.target.closest('[data-board-tool]');if(selectedTool){tool=selectedTool.dataset.boardTool;if(sharedModels.size && session.canDraw)setModelInk(true);for(const button of shell.querySelectorAll('[data-board-tool]'))button.setAttribute('aria-pressed',String(button===selectedTool));updateRoom();}
   const create = event.target.closest('[data-board-create-empty]'); if(create) showCreate();
   const more = event.target.closest('[data-board-more]'); if(more) { limits[more.dataset.boardMore] += 12; renderCatalog(); }
   const ink = event.target.closest('[data-board-color]'); if(ink) { chooseColor(ink.dataset.boardColor); }
@@ -262,11 +472,33 @@ $('#board-clear').addEventListener('click',() => $('#board-clear-dialog').showMo
 $('#board-clear-cancel').addEventListener('click',() => $('#board-clear-dialog').close());
 $('#board-clear-confirm').addEventListener('click',event => perform(event.currentTarget,async () => { await session.clear(); $('#board-clear-dialog').close(); }));
 $('#board-chat-form').addEventListener('submit',event => { event.preventDefault(); const input = $('#board-chat-input'); perform(event.currentTarget.querySelector('button'),async () => { await session.message(input.value); input.value = ''; input.focus(); }); });
-$('#board-export').addEventListener('click',() => { repaint(); const link = document.createElement('a'); link.download = `Risio-tablero-${session.meta.id}.png`; link.href = canvas.toDataURL('image/png'); link.click(); });
+function setWideView(enabled) {
+  $('#board-room').classList.toggle('board-room-wide', enabled);
+  $('#board-wide').setAttribute('aria-pressed', String(enabled));
+}
+$('#board-wide').addEventListener('click', event => {
+  setWideView(event.currentTarget.getAttribute('aria-pressed') !== 'true');
+  boardGestures.apply();
+});
+$('#board-export').addEventListener('click', () => {
+  repaint();
+  const output = document.createElement('canvas');
+  output.width = canvas.width;
+  output.height = canvas.height;
+  const image = output.getContext('2d');
+  image.fillStyle = darkMode() ? '#191b1f' : '#ffffff';
+  image.fillRect(0, 0, output.width, output.height);
+  modelViewer?.drawTo(image);
+  image.drawImage(canvas, 0, 0);
+  const link = document.createElement('a');
+  link.download = `Risio-tablero-${session.meta.id}.png`;
+  link.href = output.toDataURL('image/png');
+  link.click();
+});
 function point(event) { const box = canvas.getBoundingClientRect(); return [Math.max(0,Math.min(1,(event.clientX-box.x)/box.width)),Math.max(0,Math.min(1,(event.clientY-box.y)/box.height))].map(n => Number(n.toFixed(5))); }
 function positionTextEditor() {
   if(!textTarget)return;
-  const editor=$('#board-text-dialog'), paper=canvas.parentElement;
+  const editor=$('#board-text-dialog'), paper=canvas.closest('.board-paper-wrapper');
   const width=Math.min(360,paper.clientWidth-16),view=canvas.getBoundingClientRect(),base=paper.getBoundingClientRect();
   editor.style.width=width+'px';
   editor.style.left=Math.max(8,Math.min(view.left-base.left+textTarget.x*view.width,paper.clientWidth-width-8))+'px';
@@ -285,7 +517,7 @@ $('#board-text-value').addEventListener('keydown',event=>{
 function hitText(p){return [...textBoxes].reverse().find(b=>p[0]>=b.x && p[0]<=b.x+b.width && p[1]>=b.y && p[1]<=b.y+b.height);}
 function cancelBoardInk(){gesture=null;pendingTap=null;session?.finishLive().catch(()=>{});repaint();}
 let pendingTap=null;
-const boardGestures=new InkGestures(canvas,{enabled:()=>visible && !$('#board-room').hidden,cancel:cancelBoardInk,changed:positionTextEditor});
+const boardGestures=new InkGestures(canvas,{viewport:canvas.closest('.board-paper-wrapper'),targets:()=>[$('#board-sheet')],enabled:()=>visible && !$('#board-room').hidden,cancel:cancelBoardInk,changed:positionTextEditor});
 window.addEventListener('risio-theme-change',()=>{if(session)repaint();positionTextEditor();});
 function startBoardInk(event,fromTap=false){
   if(!$('#board-text-dialog').hidden)return;
@@ -336,6 +568,6 @@ $('#board-delete-confirm').addEventListener('click',async event=>{
 setInterval(()=>{if(visible){if(session.meta)updateRoom();else renderCatalog();}},1000);
 export const boards = {
   start(nextProfile) { if(profile) return; profile = nextProfile; session = new BoardSession(profile,updateRoom); subscribeDirectory(); },
-  async leave() { if(session) await session.leave(); directoryStop?.();directoryStop=null;for(const stop of cleanupStops.values())stop();cleanupStops.clear();for(const stop of countStops.values())stop();countStops.clear(); },
+  async leave() { if(session) await session.leave(); setSharedModels(new Map()); directoryStop?.();directoryStop=null;for(const stop of cleanupStops.values())stop();cleanupStops.clear();for(const stop of countStops.values())stop();countStops.clear(); },
   open
 };

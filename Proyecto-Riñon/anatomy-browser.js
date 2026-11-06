@@ -18,7 +18,7 @@ const KIDNEY_STRUCTURES = [
   { name: 'Sistema colector', color: '#c2b093', description: 'Vista conjunta de los cálices, la pelvis renal y el inicio del uréter. En este GLB, su superficie exterior comparte una región; la vista de corte permite seleccionar sus regiones internas por separado.', function: 'Recoge la orina procedente de las papilas y la conduce hacia el uréter.' }
 ];
 
-const MODELS = {
+export const ANATOMY_MODELS = {
   kidney: { label: 'Riñón', parts: KIDNEY_STRUCTURES, initial: 'Corteza renal' },
   glomerulus: { label: 'Glomérulo', parts: GLOMERULUS_STRUCTURES, initial: 'Capilares glomerulares' },
   nephron: { label: 'Nefrona 15%', parts: NEPHRON_STRUCTURES, initial: 'Glomérulo' },
@@ -153,15 +153,15 @@ export class AnatomyBrowser {
   setModel(kind, model) { this.models[kind] = model; this.errors.delete(kind); this.refresh(); }
   setModelError(kind) { this.errors.add(kind); this.refresh(); }
   setKind(kind) {
-    this.kind = kind; this.selected = MODELS[kind].initial;
+    this.kind = kind; this.selected = ANATOMY_MODELS[kind].initial;
     this.refresh();
   }
   canSelect(name) { return this.parts?.some(part => part.name === name) ?? false; }
   refresh() {
-    if (this.caption) this.caption.textContent = MODELS[this.kind].label;
-    this.parts = getAvailableAnatomyParts(this.models[this.kind], MODELS[this.kind].parts);
-    if (!this.canSelect(this.selected)) this.selected = this.canSelect(MODELS[this.kind].initial)
-      ? MODELS[this.kind].initial : this.parts[0]?.name ?? null;
+    if (this.caption) this.caption.textContent = ANATOMY_MODELS[this.kind].label;
+    this.parts = getAvailableAnatomyParts(this.models[this.kind], ANATOMY_MODELS[this.kind].parts);
+    if (!this.canSelect(this.selected)) this.selected = this.canSelect(ANATOMY_MODELS[this.kind].initial)
+      ? ANATOMY_MODELS[this.kind].initial : this.parts[0]?.name ?? null;
     const list = document.querySelector('#structure-list'); list.replaceChildren();
     this.parts.forEach(part => {
       const item = document.createElement('li'), button = document.createElement('button');
@@ -172,7 +172,7 @@ export class AnatomyBrowser {
       item.append(button); list.append(item);
     });
     this.modelButtons.forEach(({ kind, button, preview }) => {
-      const { label } = MODELS[kind];
+      const { label } = ANATOMY_MODELS[kind];
       button.hidden = kind === this.kind;
       button.disabled = !this.models[kind];
       button.setAttribute('aria-label', 'Abrir ' + label.toLowerCase());
@@ -185,7 +185,7 @@ export class AnatomyBrowser {
     document.querySelector('#anatomy-list-section').hidden = !this.parts.length;
     if (!this.parts.length) {
       this.partPreview.setModel(null);
-      document.querySelector('#structure-title').textContent = MODELS[this.kind].label;
+      document.querySelector('#structure-title').textContent = ANATOMY_MODELS[this.kind].label;
     } else if (!this.picker.hidden) this.select(this.selected);
   }
   select(name) {

@@ -7,6 +7,7 @@
   <script type="module" src="./theme.js"></script>
   <title>Risio · Explorador renal interactivo</title>
   <link rel="stylesheet" href="./styles.css">
+  <link rel="stylesheet" href="./assessments.css">
   <link rel="stylesheet" href="./auth.css">
   <link rel="stylesheet" href="./boards.css">
   <link rel="stylesheet" href="./theme.css">
@@ -116,10 +117,14 @@
         </nav>
 
         <div class="home-secondary-options" aria-label="Más recursos">
-          <button class="home-secondary-option" id="btn-library" type="button">
-            <span aria-hidden="true" data-icon="book"></span> Biblioteca <small>6 PDF</small>
+          <button class="home-option home-resource" id="btn-library" type="button">
+            <span class="home-option-icon" data-icon="book" aria-hidden="true"></span>
+            <span class="home-option-copy"><strong>Biblioteca / Evaluaciones</strong><small>Documentos, videos y talleres</small></span>
           </button>
-          <button class="home-secondary-option" id="btn-boards" type="button" aria-controls="boards-page"><span aria-hidden="true" data-icon="board"></span> Tableros <small>Clases y grupos de estudio</small></button>
+          <button class="home-option home-resource" id="btn-boards" type="button" aria-controls="boards-page">
+            <span class="home-option-icon" data-icon="board" aria-hidden="true"></span>
+            <span class="home-option-copy"><strong>Tableros</strong><small>Clases y grupos de estudio</small></span>
+          </button>
           <button class="home-secondary-option" id="btn-credits" type="button" aria-controls="credits-page">
             <span aria-hidden="true" data-icon="spark"></span> Créditos <small>Equipo y agradecimientos</small>
           </button>
@@ -227,12 +232,16 @@
         </button>
         <div class="library-content">
           <p class="home-eyebrow">Recursos de aprendizaje</p>
-          <h1 id="library-title">Biblioteca</h1>
-          <p class="library-description">Material de consulta para acompañar tu recorrido por la fisiología renal.</p>
+          <h1 id="library-title">Biblioteca / Evaluaciones</h1>
+          <p class="library-description">Consulta materiales y pon a prueba lo aprendido en fisiología renal.</p>
+          <nav class="nav-tabs library-area-tabs" aria-label="Biblioteca y evaluaciones" role="tablist">
+            <button class="tab-btn active" id="library-area-materials" data-library-area="materials" type="button" role="tab" aria-selected="true" aria-controls="library-materials">Biblioteca</button>
+            <button class="tab-btn" id="library-area-assessments" data-library-area="assessments" type="button" role="tab" aria-selected="false" aria-controls="library-assessments" tabindex="-1">Evaluaciones</button>
+          </nav>
+          <div id="library-materials" role="tabpanel" aria-labelledby="library-area-materials">
           <nav class="library-modules" aria-label="Módulos de Biblioteca" role="tablist">
             <button class="library-module active" id="library-tab-documents" data-library-tab="documents" role="tab" aria-selected="true" aria-controls="library-documents" type="button"><span class="library-module-number">01</span><strong>Libros y documentos</strong><small>6 documentos · leer y anotar</small></button>
-            <button class="library-module" id="library-tab-diagrams" data-library-tab="diagrams" role="tab" aria-selected="false" aria-controls="library-diagrams" tabindex="-1" type="button"><span class="library-module-number">02</span><strong>Ilustraciones y diagramas</strong><small>3 esquemas · explorar y anotar</small></button>
-            <button class="library-module" id="library-tab-videos" data-library-tab="videos" role="tab" aria-selected="false" aria-controls="library-videos" tabindex="-1" type="button"><span class="library-module-number">03</span><strong>Videos</strong><small>10 temas · clases de Medizi</small></button>
+            <button class="library-module" id="library-tab-videos" data-library-tab="videos" role="tab" aria-selected="false" aria-controls="library-videos" tabindex="-1" type="button"><span class="library-module-number">02</span><strong>Videos</strong><small>10 temas · clases de Medizi</small></button>
           </nav>
           <section id="library-documents" class="library-module-panel" role="tabpanel" aria-labelledby="library-tab-documents">
           <h2 class="library-section-title">Libros y documentos</h2>
@@ -392,17 +401,53 @@
             </details>
           </div>
           </section>
-          <section id="library-diagrams" class="library-module-panel" role="tabpanel" aria-labelledby="library-tab-diagrams" hidden>
-            <h2 class="library-section-title">Ilustraciones y diagramas</h2>
-            <p class="library-section-copy">Esquemas del Atlas para conectar la anatomía, el filtrado y el recorrido de la glucosa.</p>
-            <div id="library-diagram-list" class="library-diagram-list"></div>
-          </section>
           <section id="library-videos" class="library-module-panel" role="tabpanel" aria-labelledby="library-tab-videos" hidden>
             <div class="library-video-heading"><div><h2 class="library-section-title">Clases de fisiología</h2><p class="library-section-copy">Dr. Eduardo Paiva · Canal Medizi. Selecciona un tema y sigue las clases en orden.</p></div><a href="https://www.youtube.com/@doctor.paiva." target="_blank" rel="noopener noreferrer" class="library-source-link icon-label-control"><span data-icon="external" aria-hidden="true"></span> Ir al canal</a></div>
             <div class="library-video-filters"><label>Tema<select id="library-video-topic"></select></label><label>Buscar clase<input type="search" id="library-video-search" placeholder="Filtración, glucosa, membrana…"></label></div>
             <p id="library-video-count" class="library-section-copy" aria-live="polite"></p>
             <div id="library-video-list" class="library-video-list"></div>
             <p id="library-video-empty" class="library-empty" hidden>No hay clases con ese texto. Prueba otro término.</p>
+          </section>
+          </div>
+          <section id="library-assessments" role="tabpanel" aria-labelledby="library-area-assessments" hidden>
+            <div id="assessment-catalog">
+              <h2 class="library-section-title" id="assessment-catalog-title" tabindex="-1">Talleres de fisiología renal</h2>
+              <p class="library-section-copy">Seis talleres de práctica, uno por capítulo. Puedes consultar el libro y repetir cada taller.</p>
+              <div id="assessment-cards" class="assessment-cards"></div>
+            </div>
+            <div id="assessment-detail" hidden>
+              <button id="assessment-back" class="assessment-button secondary" type="button">Volver a talleres</button>
+              <h2 id="assessment-title" class="library-section-title" tabindex="-1"></h2>
+              <p id="assessment-description" class="library-section-copy"></p>
+              <button id="assessment-reading" class="assessment-reference" type="button"></button>
+              <p id="assessment-status" class="assessment-status" role="status"></p>
+              <button id="assessment-retry-load" class="assessment-button secondary" type="button" hidden>Reintentar carga</button>
+              <form id="assessment-form" hidden>
+                <div id="assessment-questions"></div>
+                <button class="assessment-button" type="submit">Entregar taller</button>
+              </form>
+              <section id="assessment-result" hidden aria-labelledby="assessment-result-title">
+                <div class="assessment-score">
+                  <div>
+                    <h3 id="assessment-result-title" tabindex="-1">Resultado del taller</h3>
+                    <p id="assessment-result-count"></p>
+                  </div>
+                  <svg viewBox="0 0 120 144" class="assessment-kidney" aria-hidden="true">
+                    <defs>
+                      <path id="assessment-kidney-shape" d="M70 9C42 1 17 25 11 55c-7 34 2 68 29 78 24 9 51-4 58-23 6-16-3-27-19-30-11-2-15-10-11-18 4-8 14-9 20-16 13-14 2-31-18-37Z"/>
+                      <clipPath id="assessment-kidney-clip"><use href="#assessment-kidney-shape"/></clipPath>
+                    </defs>
+                    <use class="assessment-kidney-base" href="#assessment-kidney-shape"/>
+                    <rect id="assessment-kidney-fill" x="0" y="144" width="120" height="0" clip-path="url(#assessment-kidney-clip)"/>
+                    <use class="assessment-kidney-outline" href="#assessment-kidney-shape"/>
+                  </svg>
+                  <p id="assessment-percent" class="assessment-percent"></p>
+                </div>
+                <h3 class="assessment-review-title">Revisión de respuestas</h3>
+                <ol id="assessment-review" class="assessment-review"></ol>
+                <button id="assessment-repeat" class="assessment-button secondary" type="button">Volver a intentar</button>
+              </section>
+            </div>
           </section>
         </div>
       </section>

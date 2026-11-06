@@ -3,6 +3,8 @@ import { setControlLabel, hydrateIcons } from './icons.js';
 hydrateIcons();
 import {AnnotationLayer} from './library-annotations.js';
 import {PdfReader} from './library-pdf.js';
+import {renalBook} from './renal-assessments.js';
+import './assessments.js';
 
 const $ = selector => document.querySelector(selector);
 const dialog = $('#library-reader');
@@ -19,24 +21,29 @@ const ink = new AnnotationLayer($('#library-reader-ink'), $('#library-ink-toolba
   status.textContent = 'No se pudieron guardar estos trazos. Revisa el estado de sincronización o reduce la cantidad de trazos de esta página.';
 });
 
-function selectTab(id, focus = false) {
-  for (const tab of document.querySelectorAll('[data-library-tab]')) {
-    const selected = tab.dataset.libraryTab === id;
-    tab.classList.toggle('active', selected);
-    tab.setAttribute('aria-selected', String(selected));
-    tab.tabIndex = selected ? 0 : -1;
-    document.getElementById(`library-${tab.dataset.libraryTab}`).hidden = !selected;
-    if (selected && focus) tab.focus();
+function setupTabs(selector) {
+  const tabs = [...document.querySelectorAll(selector)];
+  function selectTab(active, focus = false) {
+    for (const tab of tabs) {
+      const selected = tab === active;
+      tab.classList.toggle('active', selected);
+      tab.setAttribute('aria-selected', String(selected));
+      tab.tabIndex = selected ? 0 : -1;
+      document.getElementById(tab.getAttribute('aria-controls')).hidden = !selected;
+    }
+    if (focus) active.focus();
   }
-}
-const tabs = [...document.querySelectorAll('[data-library-tab]')];
-tabs.forEach((tab, index) => {
-  tab.addEventListener('click', () => selectTab(tab.dataset.libraryTab));
-  tab.addEventListener('keydown', event => {
-    const next = event.key === 'ArrowRight' ? (index + 1) % tabs.length : event.key === 'ArrowLeft' ? (index + tabs.length - 1) % tabs.length : event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : null;
-    if (next !== null) { event.preventDefault(); selectTab(tabs[next].dataset.libraryTab, true); }
+  tabs.forEach((tab, index) => {
+    tab.addEventListener('click', () => selectTab(tab));
+    tab.addEventListener('keydown', event => {
+      const next = {ArrowRight: (index + 1) % tabs.length, ArrowLeft: (index + tabs.length - 1) % tabs.length,
+        Home: 0, End: tabs.length - 1}[event.key];
+      if (Number.isInteger(next)) { event.preventDefault(); selectTab(tabs[next], true); }
+    });
   });
-});
+}
+setupTabs('[data-library-area]');
+setupTabs('[data-library-tab]');
 
 function timestamp(seconds) {
   const s = Math.max(0, Math.floor(seconds));
@@ -44,7 +51,7 @@ function timestamp(seconds) {
 }
 
 function annotationKey() {
-  return `${resource.type}:${resource.id}:${resource.type === 'video' ? videoTime : resource.type === 'pdf' ? Number(notePage.value) : 1}`;
+  return `${resource.type}:${resource.id}:${resource.type === 'video' ? videoTime : Number(notePage.value)}`;
 }
 
 function setDrawing(enabled, keepTime = false) {
@@ -113,7 +120,7 @@ function openReader(item, button) {
   stage.className = `library-reader-stage reader-${item.type}`;
   dialog.dataset.kind = item.type;
   $('#library-reader-title').textContent = item.title;
-  $('#library-reader-kind').textContent = item.type === 'pdf' ? 'Libros y documentos' : item.type === 'video' ? 'Medizi · Dr. Eduardo Paiva' : 'Ilustraciones y diagramas';
+  $('#library-reader-kind').textContent = item.type === 'pdf' ? 'Libros y documentos' : 'Medizi · Dr. Eduardo Paiva';
   $('#library-page-label').hidden = item.type !== 'pdf';
   $('#library-video-time').hidden = item.type !== 'video';
   $('#library-video-notes').hidden = item.type !== 'video';
@@ -121,9 +128,6 @@ function openReader(item, button) {
   const download = $('#library-reader-download');
   download.hidden = item.type === 'video';
   download.href = item.download || item.source;
-  setControlLabel(download, 'download', item.type === 'pdf' ? 'Descargar PDF' : 'Descargar SVG');
-  if (item.type === 'image') download.setAttribute('download', `${item.id}.svg`);
-  else download.removeAttribute('download');
   annotate.disabled = item.type === 'video' || item.type === 'pdf';
   pdfControls.hidden = item.type !== 'pdf';
   pdfControls.querySelectorAll('button').forEach(button => button.disabled = true);
@@ -166,16 +170,13 @@ function openReader(item, button) {
         pdfControls.hidden = true; annotate.disabled = false;
         $('#library-page-label').firstChild.textContent = 'Página de tus anotaciones ';
         notePage.setAttribute('aria-label', 'Página para guardar las anotaciones');
+        if (item.page) notePage.value = String(item.page);
         const frame = document.createElement('iframe'); frame.title = `Documento PDF: ${item.title}`; frame.src = item.preview; media.append(frame);
         status.textContent = 'Se abrió el visor de respaldo. Si no aparece el documento, usa Abrir original para revisar su acceso.';
         $('#library-reader-hint').textContent = 'Usa los controles del documento para ajustar el zoom. Indica la página antes de anotar.';
       }
     });
-    pdfReader.open(item.id);
-  } else if (item.type === 'image') {
-    $('#library-reader-hint').textContent = 'Abre Anotar para dibujar sobre el esquema. Tus trazos se guardan en tu cuenta.';
-    const image = document.createElement('img'); image.src = item.source; image.alt = item.title;
-    media.append(image);
+    pdfReader.open(item.id, {url: item.url, page: item.page});
   } else {
     $('#library-reader-hint').textContent = 'Anotar pausa el video y guarda tus trazos en ese momento. Termina la anotación para volver a los controles.';
     $('#library-video-time').textContent = 'Reproductor interno de YouTube';
@@ -207,20 +208,14 @@ document.querySelectorAll('.library-view-button').forEach(button => {
   });
 });
 
-const diagrams = [
-  {id: 'anatomia-renal', title: 'Anatomía del riñón', description: 'Corte esquemático: corteza, médula, cálices, pelvis y vasos.'},
-  {id: 'recorrido-nefrona', title: 'Recorridos de sangre y filtrado', description: 'Dos rutas separadas y el retorno de sustancias hacia la sangre.'},
-  {id: 'glucosa-filtracion', title: 'Filtración y reabsorción de glucosa', description: 'La carga filtrada, la capacidad de transporte y la glucosa que continúa.'}
-];
-for (const item of diagrams) {
-  const card = document.createElement('article'); card.className = 'library-diagram-card';
-  const image = document.createElement('img'); image.src = `illustrations/${item.id}.svg`; image.alt = item.title;
-  const title = document.createElement('h3'); title.textContent = item.title;
-  const copy = document.createElement('p'); copy.textContent = item.description;
-  const button = document.createElement('button'); button.className = 'library-view-button'; button.type = 'button'; setControlLabel(button, 'external', 'Abrir esquema y anotar');
-  button.addEventListener('click', () => openReader({type: 'image', ...item, source: `illustrations/${item.id}.svg`}, button));
-  card.append(image, title, copy, button); $('#library-diagram-list').append(card);
-}
+$('#library-assessments').addEventListener('click', event => {
+  const button = event.target.closest('[data-renal-page]');
+  if (!button) return;
+  const page = Number(button.dataset.renalPage);
+  const source = `${renalBook.url}#page=${page}`;
+  openReader({type: 'pdf', id: 'fisiologia-renal-talleres', title: renalBook.title,
+    url: renalBook.url, page, source, preview: source, download: renalBook.url}, button);
+});
 
 function loadYouTubeAPI() {
   if (window.YT?.Player) return Promise.resolve(window.YT);

@@ -1,5 +1,9 @@
 /* Light values are the original Risio palette, unchanged. */
 :root {
+  --home-resource-bg: #8c2626;
+  --home-resource-hover: #741e1e;
+  --home-resource-text: #fff;
+  --home-resource-icon-bg: rgba(255, 255, 255, .16);
   --bg-f2eee9: #f2eee9;
   --text-333333: #333;
   --bg-f9f7f4: #f9f7f4;
@@ -245,6 +249,10 @@
   color-scheme: light;
 }
 html[data-theme="dark"] {
+  --home-resource-bg: #e7a19b;
+  --home-resource-hover: #f3b3ab;
+  --home-resource-text: #29191b;
+  --home-resource-icon-bg: rgba(41, 25, 27, .12);
   --bg-f2eee9: #17191c;
   --text-333333: #f0e9e3;
   --bg-f9f7f4: #202124;
@@ -491,11 +499,11 @@ html[data-theme="dark"] {
 }
 
 .theme-toggle {display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:40px;padding:8px 11px;border:1px solid var(--border-dfd4cb,#dfd4cb);border-radius:8px;background:var(--bg-f9f7f4,#f9f7f4);color:var(--text-8c2626,#8c2626);font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;}
-.auth-gate > .theme-toggle {position:absolute;top:max(12px,env(safe-area-inset-top));right:max(16px,env(safe-area-inset-right));z-index:1;}
+.auth-content > .theme-toggle { margin-bottom: 16px; }
 .theme-toggle:focus-visible,button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible {outline:3px solid #c79784;outline-offset:3px;}
 html[data-theme="dark"] .ricio-symbol {mix-blend-mode:normal;}
 html[data-theme="dark"] .ricio-symbol img,html[data-theme="dark"] .auth-brand img,html[data-theme="dark"] .boards-brand img {filter:brightness(1.6);}
-html[data-theme="dark"] .board-paper-wrapper,html[data-theme="dark"] #board-canvas {background:#191b1f;}
+html[data-theme="dark"] .board-paper-wrapper {background:#191b1f;}
 html[data-theme="dark"] .board-text-editor {background:#242529;color:#f0e9e3;border-color:#61514c;}
 html[data-theme="dark"] .board-text-editor textarea {background:#191b1f;color:#f0e9e3;}
 html[data-theme="dark"] .library-pdf-page {background:#fff;color:#222;}

@@ -40,7 +40,7 @@ const doc = { body: new Element(),
   createElement: () => new Element(), createTextNode: text => Object.assign(new Element(), { textContent: text }) };
 
 const browserSource = fs.readFileSync(new URL('../anatomy-browser.js', import.meta.url), 'utf8');
-const prefix = browserSource.slice(browserSource.indexOf('const KIDNEY_STRUCTURES'), browserSource.indexOf('export class ModelPreview')).replaceAll('export function', 'function');
+const prefix = browserSource.slice(browserSource.indexOf('const KIDNEY_STRUCTURES'), browserSource.indexOf('export class ModelPreview')).replace(/^export /gm, '');
 const args = ['THREE', 'GLOMERULUS_STRUCTURES', 'NEPHRON_STRUCTURES', 'NEPHRON85_STRUCTURES'];
 const values = [THREE, GLOMERULUS_STRUCTURES, NEPHRON_STRUCTURES, NEPHRON85_STRUCTURES];
 const { extractPreview } = new Function(...args, prefix + ';return {extractPreview};')(...values);

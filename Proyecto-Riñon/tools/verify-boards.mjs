@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import assert from 'node:assert/strict';
 import {initializeTestEnvironment, assertFails, assertSucceeds} from '@firebase/rules-unit-testing';
+import {boardLifetime} from '../board-utils.js';
 for (const key of ['HTTP_PROXY','HTTPS_PROXY','http_proxy','https_proxy']) delete process.env[key];
 const env = await initializeTestEnvironment({projectId:'demo-risio',database:{host:'127.0.0.1',port:9000,rules:fs.readFileSync(new URL('../../database.rules.json',import.meta.url),'utf8')}});
 const user = (uid, verified = true) => env.authenticatedContext(uid,{email_verified:verified}).database();
@@ -66,6 +67,52 @@ try {
   await assertFails(db.student1.ref('boardData/UPB/class/permissions/student1').set(true));
   await assertSucceeds(db.teacher.ref('boardData/UPB/class/permissions/student1').set(true));
   await assertSucceeds(db.student1.ref('boardData/UPB/class/strokes/permitted').set(stroke('student1')));
+  const classModels = 'boardData/UPB/class/models';
+  await assertSucceeds(db.teacher.ref(`${classModels}/kidney-cut`).set(true));
+  assert.equal((await db.student1.ref(`${classModels}/kidney-cut`).get()).val(), true);
+  await assertSucceeds(db.teacher.ref(`${classModels}/kidney-cut`).set(125));
+  assert.equal((await db.student1.ref(`${classModels}/kidney-cut`).get()).val(), 125);
+  await assertFails(db.student1.ref(`${classModels}/kidney-cut`).set(150));
+  await assertFails(db.teacher.ref(`${classModels}/kidney-cut`).set(126));
+  await assertFails(db.teacher.ref(`${classModels}/kidney-cut`).set(225));
+  await assertFails(db.teacher.ref(`${classModels}/kidney-full`).set(125));
+  await assertFails(db.student1.ref(`${classModels}/nephron-85`).set(true));
+  await assertFails(db.student1.ref(`${classModels}/kidney-cut`).remove());
+  await assertFails(db.teacher.ref(`${classModels}/external-url`).set(true));
+  await assertFails(db.teacher.ref(`${classModels}/nephron-85`).set('https://example.com/model.glb'));
+  await assertFails(user('teacher', false).ref(`${classModels}/nephron-85`).set(true));
+  await assertSucceeds(db.teacher.ref(`${classModels}/kidney-cut`).remove());
+
+  // The student who created the board and other connected participants can manage models.
+  await assertSucceeds(db.student1.ref('boardDirectory/UPB/model-group').set(directory('student1')));
+  const modelGroup = uid => db[uid].ref('boardData/UPB/model-group');
+  await assertSucceeds(modelGroup('student1').child('slots/s0').set(presence('student1')));
+  await assertSucceeds(modelGroup('student1').child('models/glomerulus').set(true));
+  await assertFails(modelGroup('student2').child('models/nephron-15').set(true));
+  await assertSucceeds(modelGroup('student2').child('slots/s2').set(presence('student2')));
+  assert.equal((await modelGroup('student2').child('models/glomerulus').get()).val(), true);
+  await assertSucceeds(modelGroup('student2').child('models/glomerulus').remove());
+  await assertSucceeds(modelGroup('student2').child('models/nephron-15').set(true));
+  await assertSucceeds(modelGroup('student2').child('models/nephron-15').set(75));
+  await assertFails(modelGroup('teacher').child('models/glomerulus').set(true));
+  await assertSucceeds(modelGroup('teacher').child('slots/s1').set(presence('teacher')));
+  for (const model of ['kidney-full', 'kidney-cut', 'nephron-15', 'nephron-85', 'glomerulus']) {
+    await assertSucceeds(modelGroup('teacher').child(`models/${model}`).set(true));
+  }
+  assert.equal((await modelGroup('student1').child('models').get()).numChildren(), 5);
+  for (const model of ['glomerulus-15', 'glomerulus-85']) {
+    await assertFails(modelGroup('student1').child(`models/${model}`).set(true));
+    await assertFails(db.teacher.ref(`${classModels}/${model}`).set(true));
+  }
+  await assertFails(modelGroup('student7').child('models').get());
+  await assertSucceeds(modelGroup('teacher').child('slots/s1').update({leftAt:{'.sv':'timestamp'}}));
+  await assertFails(modelGroup('teacher').child('models/glomerulus').remove());
+  await env.withSecurityRulesDisabled(async ctx => {
+    await ctx.database().ref('boardDirectory/UPB/model-group/createdAt').set(Date.now() - 2701000);
+  });
+  await assertFails(modelGroup('student1').child('models').get());
+  await assertFails(modelGroup('teacher').child('models/glomerulus').remove());
+  await assertSucceeds(db.student1.ref().update({'boardDirectory/UPB/model-group':null,'boardData/UPB/model-group':null}));
   await assertSucceeds(db.teacher.ref('boardData/UPB/class/permissions/student1').remove());
   await assertFails(db.student1.ref('boardData/UPB/class/strokes/revoked').set(stroke('student1')));
   await assertFails(db.student2.ref('boardData/UPB/class/strokes/impersonation').set(stroke('teacher')));
@@ -103,6 +150,43 @@ try {
   await assertFails(db[accepted[1].uid].ref('boardData/UPB/group/strokes').get());
   await assertFails(db.student1.ref('boardDirectory/UPB/group/createdAt').set({'.sv':'timestamp'}));
   const deletion=id=>({[`boardDirectory/UPB/${id}`]:null,[`boardData/UPB/${id}`]:null});
+  // Duration is role-bound, immutable, and enforced by server time.
+  const longClass = db.teacher.ref('boardDirectory/UPB/long-class');
+  await assertFails(longClass.set({...directory('teacher', 'teacher'), durationMinutes: 300}));
+  await assertSucceeds(longClass.set({...directory('teacher', 'teacher'), durationMinutes: 240}));
+  await assertFails(longClass.child('durationMinutes').set(120));
+  await assertFails(longClass.child('durationMinutes').remove());
+  const longGroup = db.student1.ref('boardDirectory/UPB/long-group');
+  for (const durationMinutes of [0, 1.5, 35, 45, 61, '60']) {
+    await assertFails(longGroup.set({...directory('student1'), durationMinutes}));
+  }
+  for (const durationMinutes of [20, 40]) {
+    const id = `group-${durationMinutes}`;
+    await assertSucceeds(db.student1.ref(`boardDirectory/UPB/${id}`).set({...directory('student1'), durationMinutes}));
+    await assertSucceeds(db.student1.ref().update(deletion(id)));
+  }
+  assert.equal(boardLifetime({kind:'student', durationMinutes:35}), 35 * 60000);
+  assert.equal(boardLifetime({kind:'student'}), 45 * 60000);
+  await assertSucceeds(longGroup.set({...directory('student1'), durationMinutes: 60}));
+  await env.withSecurityRulesDisabled(async ctx => {
+    const database = ctx.database();
+    await database.ref('boardDirectory/UPB/long-class/createdAt').set(Date.now() - 61 * 60000);
+    await database.ref('boardDirectory/UPB/long-group/createdAt').set(Date.now() - 46 * 60000);
+    await database.ref('boardData/UPB/long-group/slots/s0').set(presence('student1'));
+  });
+  await assertSucceeds(db.teacher.ref('boardData/UPB/long-class/classSlots/c0').set(presence('teacher')));
+  await assertSucceeds(db.student1.ref('boardData/UPB/long-group/strokes/a').set(stroke('student1')));
+  await assertFails(db.student2.ref().update(deletion('long-class')));
+  await assertFails(db.student2.ref().update(deletion('long-group')));
+  await env.withSecurityRulesDisabled(async ctx => {
+    await ctx.database().ref('boardDirectory/UPB/long-class/createdAt').set(Date.now() - 240 * 60000 - 1000);
+    await ctx.database().ref('boardDirectory/UPB/long-group/createdAt').set(Date.now() - 60 * 60000 - 1000);
+  });
+  await assertFails(db.teacher.ref('boardData/UPB/long-class/classSlots/c1').set(presence('teacher')));
+  await assertFails(db.student1.ref('boardData/UPB/long-group/strokes/b').set(stroke('student1')));
+  await assertSucceeds(db.student2.ref().update(deletion('long-class')));
+  await assertSucceeds(db.student2.ref().update(deletion('long-group')));
+
   await assertFails(db.student2.ref().update(deletion('class')));
   await assertSucceeds(db.student1.ref('boardDirectory/UPB/owned').set({...directory('student1'),createdAt:{'.sv':'timestamp'}}));
   await assertSucceeds(db.student1.ref('boardData/UPB/owned/slots/s0').set(presence('student1')));
@@ -161,17 +245,17 @@ try {
 
   // Exercise the actual BoardSession against rules, with only its app/SDK imports injected.
   const sdk=await import('firebase/database');
-  const utilsURL=new URL('../board-utils.js',import.meta.url).href;
   const original=fs.readFileSync(new URL('../board-session.js',import.meta.url),'utf8');
   async function client(uid,role){
     globalThis.__boardTest={...sdk,auth:{currentUser:{uid}},database:db[uid]._delegate,withTimeout:p=>p};
     const code=original.replace(/^import .*from '\.\/firebase-client.js';$/m,'const {auth,database,withTimeout,ref,get,set,update,remove,push,onValue,query,limitToLast,runTransaction,onDisconnect,serverTimestamp}=globalThis.__boardTest;')
-      .replace(/^import .*from '\.\/vendor\/firebase-sdk.js';$/m,'').replace("'./board-utils.js'",JSON.stringify(utilsURL));
+      .replace(/^import .*from '\.\/vendor\/firebase-sdk.js';$/m,'').replace(/from '(\.\/board-[^']+)'/g, (_, path) => 'from ' + JSON.stringify(new URL('../' + path, import.meta.url).href));
     const {BoardSession}=await import('data:text/javascript;base64,'+Buffer.from(code).toString('base64')+'#'+uid);
     return new BoardSession(profile(uid,role),()=>{});
   }
   const teacherClient=await client('teacher','teacher'),studentClient=await client('student2','student');
-  const classMeta=await teacherClient.create('Clase real','Materia real');
+  const classMeta=await teacherClient.create('Clase real','Materia real', 180);
+  assert.equal(classMeta.durationMinutes, 180);
   async function ready(session){for(let i=0;i<80 && !session.present && !session.error;i++)await new Promise(r=>setTimeout(r,25));assert.equal(session.error,'');assert.equal(session.present,true);}
   await teacherClient.join(classMeta);await ready(teacherClient);
   await studentClient.join(classMeta);await ready(studentClient);
@@ -185,7 +269,17 @@ try {
   await env.withSecurityRulesDisabled(async ctx=>{assert.equal((await ctx.database().ref('boardData/UPB/'+classMeta.id+'/classSlots').get()).exists(),false);});
   await teacherClient.deleteBoard(classMeta);
   const groupMeta=await studentClient.create('Grupo real','Materia real');
-  await studentClient.join(groupMeta);await ready(studentClient);await studentClient.leave();
+  assert.equal(groupMeta.durationMinutes, 40);
+  await studentClient.join(groupMeta);await ready(studentClient);
+  const modelRef=db.student2.ref('boardData/UPB/'+groupMeta.id+'/models/kidney-full');
+  await studentClient.shareModel('kidney-full', true);
+  assert.equal((await modelRef.get()).val(), true);
+  await Promise.all([studentClient.resizeModel('kidney-full', 1), studentClient.resizeModel('kidney-full', 1)]);
+  assert.equal((await modelRef.get()).val(), 150);
+  await studentClient.shareModel('kidney-full', false);
+  await studentClient.resizeModel('kidney-full', 1);
+  assert.equal((await modelRef.get()).exists(), false);
+  await studentClient.leave();
   let departedSlots;
   await env.withSecurityRulesDisabled(async ctx=>{
     const target=ctx.database().ref('boardData/UPB/'+groupMeta.id+'/slots');departedSlots=(await target.get()).val();

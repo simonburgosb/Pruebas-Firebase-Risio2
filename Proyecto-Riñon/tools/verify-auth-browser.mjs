@@ -6,6 +6,7 @@ import {fileURLToPath} from 'node:url';
 import {mkdtempSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
+import {libraryPdfFixture} from './library-pdf-fixture.mjs';
 const {chromium} = createRequire(import.meta.url)('playwright');
 const qaDirectory = mkdtempSync(join(tmpdir(), 'risio-qa-'));
 const server = spawn(process.execPath, [fileURLToPath(new URL('../server.mjs', import.meta.url))],
@@ -33,6 +34,7 @@ try {
   const page = await context.newPage(); page.setDefaultTimeout(30000); const errors = [];
   page.on('pageerror', e => {errors.push(e.message); console.log('QA pageerror:', e.message);});
   page.on('console', msg => {if(msg.type()==='error')console.log('QA console:',msg.text());});
+  await page.route('**/api/library-pdf/**', route => route.fulfill({ contentType:'application/pdf', body:libraryPdfFixture }));
   await page.goto(url); await page.locator('[data-auth-view=login]').waitFor({state:'visible'});
   assert.equal(await page.locator('#app').isVisible(), false);
   await page.getByRole('button', {name:'Crear cuenta', exact:true}).click();
@@ -82,16 +84,25 @@ try {
   await other.waitForFunction(async () => (await import('./account-notes.js')).notes.read('viewer:anatomy:kidney').length > 0);
   assert.equal(await other.evaluate(() => Object.keys(localStorage).some(k => k.startsWith('risio:notes:v1:'))), true);
   console.log('QA: segundo dispositivo sincronizado');
-  // Esquemas: segunda capa real de anotación en la biblioteca.
+  assert.equal(await other.locator('#annotation-canvas').isVisible(), false);
+  await other.locator('[data-home-tab="1"]').click();
+  assert.equal(await other.locator('#annotation-canvas').isVisible(), true);
+  // Documentos: segunda capa real de anotación en la biblioteca.
   await page.locator('#btn-home').click(); await page.locator('#btn-library').click();
-  await page.locator('[data-library-tab=diagrams]').click();
-  await page.locator('#library-diagram-list button').first().click();
+  assert.deepEqual(await page.getByRole('tab').evaluateAll(tabs => tabs.map(tab => tab.dataset.libraryTab)), ['documents', 'videos']);
+  const documentCard = page.locator('.library-file').first();
+  await documentCard.locator('summary').click();
+  const documentButton = documentCard.locator('.library-view-button');
+  const documentId = (await documentButton.getAttribute('data-preview-url')).match(/\/d\/([^/]+)/)[1];
+  await documentButton.click();
+  await page.locator('.library-pdf-page').waitFor();
   await page.locator('#library-reader-annotate').click();
   const inkBox = await page.locator('#library-reader-ink').boundingBox();
   await page.mouse.move(inkBox.x+50,inkBox.y+50); await page.mouse.down();
   await page.mouse.move(inkBox.x+100,inkBox.y+100,{steps:5}); await page.mouse.up();
-  await page.waitForFunction(async () => {const {notes} = await import('./account-notes.js'); return !notes.pending && notes.read('library:image:anatomia-renal:1').length > 0;});
-  await other.waitForFunction(async () => (await import('./account-notes.js')).notes.read('library:image:anatomia-renal:1').length > 0);
+  const documentKey = `library:pdf:${documentId}:1`;
+  await page.waitForFunction(async key => {const {notes} = await import('./account-notes.js'); return !notes.pending && notes.read(key).length > 0;}, documentKey);
+  await other.waitForFunction(async key => (await import('./account-notes.js')).notes.read(key).length > 0, documentKey);
   console.log('QA: biblioteca guardada');
   // Capturas solo para QA interna; nunca se entregan con datos de usuarios.
   await page.locator('#library-reader-close').click();

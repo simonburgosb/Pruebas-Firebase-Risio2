@@ -1,3 +1,4 @@
+import {libraryPdfFixture} from './library-pdf-fixture.mjs';
 import fs from 'node:fs';import {tmpdir} from 'node:os';import {join} from 'node:path';import {chromium} from 'playwright';import assert from 'node:assert/strict';import {spawn} from 'node:child_process';import {fileURLToPath} from 'node:url';
 const server=spawn(process.execPath,[fileURLToPath(new URL('../server.mjs',import.meta.url))],{env:{...process.env,PORT:'8088',RISIO_EMULATORS:'1'},stdio:'ignore'});let browser;
 try{
@@ -8,6 +9,7 @@ try{
  await page.route('**/firebase-client.js',r=>r.fulfill({contentType:'text/javascript',body:`export const auth={currentUser:{uid:'tablet'}};export const database={};export const withTimeout=p=>p;`}));
  await page.route('**/vendor/firebase-sdk.js',r=>r.fulfill({contentType:'text/javascript',body:fs.readFileSync(new URL('./tablet-firebase-fixture.mjs',import.meta.url),'utf8')}));
  await page.route('**/auth-ui.js',r=>r.fulfill({contentType:'text/javascript',body:`document.querySelector('#auth-gate').hidden=true;document.body.classList.remove('auth-locked');document.querySelector('#app').inert=false;document.querySelector('#app').removeAttribute('aria-hidden');await Promise.all([import('./main.js'),import('./library.js')]);const {boards}=await import('./boards.js');boards.start({displayName:'Prueba tablet',university:'UPB',requestedRole:'student'});window.tabletReady=true;`}));
+ await page.route('**/api/library-pdf/**', route => route.fulfill({ contentType:'application/pdf', body:libraryPdfFixture }));
  await page.goto('http://127.0.0.1:8088/');await page.waitForFunction(()=>window.tabletReady,{timeout:90000});
  await page.locator('#account-bar .theme-toggle').click();assert.equal(await page.locator('html').getAttribute('data-theme'),'dark');
  await page.reload();await page.waitForFunction(()=>window.tabletReady);assert.equal(await page.locator('html').getAttribute('data-theme'),'dark');
@@ -31,7 +33,15 @@ try{
  }
  await page.setViewportSize({width:1024,height:640});await page.locator('.tab-btn[data-tab="3"]').click();await page.screenshot({path:join(tmpdir(),'risio-tablet-dark-filtration.png')});
  await page.locator('#account-bar .theme-toggle').click();await page.waitForTimeout(300);await page.screenshot({path:join(tmpdir(),'risio-tablet-light-filtration.png')});
- await page.locator('#btn-home').click();await page.locator('#btn-library').click();await page.locator('#library-tab-diagrams').click();await page.locator('#library-diagram-list button').first().click();await page.locator('#library-reader-annotate').click();
+ await page.locator('#btn-home').click();
+ assert.equal(await page.locator('#annotation-canvas').isVisible(),false);
+ await page.locator('#btn-library').click();
+ assert.deepEqual(await page.locator('.library-modules [role=tab]').evaluateAll(tabs=>tabs.map(tab=>tab.dataset.libraryTab)),['documents','videos']);
+ const documentCard=page.locator('.library-file').first();
+ await documentCard.locator('summary').click();
+ await documentCard.locator('.library-view-button').click();
+ await page.locator('.library-pdf-page').waitFor();
+ await page.locator('#library-reader-annotate').click();
  box=await page.locator('#library-reader-ink').boundingBox();const beforeLibrary=await page.evaluate(()=>window.tabletNotes.saves);
  await touch('touchStart',[pt(1,.35,.5)]);await touch('touchStart',[pt(1,.35,.5),pt(2,.55,.5)]);await touch('touchMove',[pt(1,.25,.5),pt(2,.65,.5)]);await touch('touchEnd',[]);
  assert.equal(await page.evaluate(()=>window.tabletNotes.saves),beforeLibrary,'Library pinch does not save ink');
@@ -40,7 +50,7 @@ try{
  box=await page.locator('#board-canvas').boundingBox();
  await touch('touchStart',[pt(1,.35,.5)]);await touch('touchStart',[pt(1,.35,.5),pt(2,.55,.5)]);await touch('touchMove',[pt(1,.25,.5),pt(2,.65,.5)]);await touch('touchEnd',[]);
  const count=await page.evaluate(()=>Object.values(window.tabletBoardData.boardData?.UPB||{}).reduce((n,b)=>n+Object.keys(b.strokes||{}).length,0));assert.equal(count,0,'Board pinch saves no permanent stroke');
- await page.locator('#board-canvas').evaluate(el=>el.parentElement.querySelector('.ink-reset').click());
+ await page.locator('#board-canvas').evaluate(el=>el.closest('.board-paper-wrapper').querySelector('.ink-reset').click());
  for(const size of [{width:1024,height:640},{width:768,height:900}]){await page.setViewportSize(size);await page.waitForTimeout(150);const rect=await page.locator('#board-canvas').boundingBox();assert.ok(rect.height>100 && rect.y+rect.height<=size.height,JSON.stringify(rect));}
  await page.setViewportSize({width:1024,height:640});await page.locator('#account-bar .theme-toggle').click();await page.waitForTimeout(300);await page.screenshot({path:join(tmpdir(),'risio-tablet-dark-board.png')});
  await page.locator('[data-board-tool="text"]').click();await page.locator('#board-canvas').click({position:{x:80,y:80}});await page.locator('#board-text-value').fill('Texto con teclado de tablet');await page.setViewportSize({width:1024,height:380});await page.waitForTimeout(200);

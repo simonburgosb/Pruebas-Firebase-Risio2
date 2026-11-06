@@ -28,7 +28,25 @@ export function isBlue(color) {const {red,green,blue}=rgb(color);return blue>red
 export const CLASS_TTL = 60*60*1000;
 export const EMPTY_TTL = 2*60*1000;
 export const boardLimit = meta => meta.kind==='teacher'?50:5;
-export const boardLifetime = meta => meta.kind==='teacher'?CLASS_TTL:BOARD_TTL;
+export const CLASS_DURATION_MINUTES = [60, 120, 180, 240];
+export const STUDENT_DURATION_MINUTES = [20, 40, 60];
+export const defaultBoardMinutes = kind => kind === 'teacher' ? 60 : 40;
+
+export function validBoardDuration(kind, minutes) {
+  if (kind === 'teacher') return CLASS_DURATION_MINUTES.includes(minutes);
+  return kind === 'student' && STUDENT_DURATION_MINUTES.includes(minutes);
+}
+
+export function boardLifetime(meta) {
+  const { kind, durationMinutes } = meta;
+  // Los grupos de versiones anteriores admitían cualquier minuto entre 1 y 60.
+  if (kind === 'student') {
+    return Number.isInteger(durationMinutes) && durationMinutes >= 1 && durationMinutes <= 60
+      ? durationMinutes * 60000
+      : BOARD_TTL;
+  }
+  return validBoardDuration(kind, durationMinutes) ? durationMinutes * 60000 : CLASS_TTL;
+}
 export const activePeople = values => Object.values(values||{}).filter(v=>!v.leftAt);
 export function boardExpired(meta, now, slots) {
   if(now >= meta.createdAt+boardLifetime(meta))return true;

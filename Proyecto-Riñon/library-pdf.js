@@ -17,7 +17,7 @@ export class PdfReader {
     this.observer.observe(stage);
   }
 
-  async open(id) {
+  async open(id, {url, page = 1} = {}) {
     try {
       const pdfjs = await import('./vendor/pdfjs/build/pdf.mjs');
       if (this.closed) return;
@@ -32,7 +32,7 @@ export class PdfReader {
         disableStream: false,
         rangeChunkSize: 1_048_576
       };
-      const sources = [`./api/library-pdf/${encodeURIComponent(id)}`, `https://drive.usercontent.google.com/download?id=${encodeURIComponent(id)}&export=download&confirm=t`];
+      const sources = url ? [url] : [`./api/library-pdf/${encodeURIComponent(id)}`, `https://drive.usercontent.google.com/download?id=${encodeURIComponent(id)}&export=download&confirm=t`];
       for (let i = 0; i < sources.length; i++) {
         this.loading = pdfjs.getDocument({...options, url: sources[i]});
         this.loading.onProgress = ({loaded, total}) => {
@@ -54,7 +54,8 @@ export class PdfReader {
       this.surface.append(this.canvas);
       this.media.append(this.surface);
       this.onSurface(this.surface);
-      this.onPage(1, this.document.numPages);
+      this.pageNumber = Math.max(1, Math.min(this.document.numPages, Math.round(Number(page) || 1)));
+      this.onPage(this.pageNumber, this.document.numPages);
       await this.render();
     } catch (error) {
       if (!this.closed && error.name !== 'RenderingCancelledException') this.onError(error);

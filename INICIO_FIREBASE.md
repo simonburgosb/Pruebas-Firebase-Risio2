@@ -4,8 +4,8 @@
 
 | Tablero | Duración máxima | Cupos simultáneos | Borrado manual |
 | --- | --- | --- | --- |
-| Clase docente | 60 minutos desde creación | 50, incluido el profesor | Profesor creador |
-| Grupo estudiantil | 45 minutos desde creación, o 2 minutos vacío | 5, incluido el creador | Estudiante creador |
+| Clase docente | 1, 2, 3 o 4 horas desde la creación | 50, incluido el profesor | Profesor creador |
+| Grupo estudiantil | 20, 40 o 60 minutos desde la creación, o 2 minutos vacío | 5, incluido el creador | Estudiante creador |
 
 Ambos se ocultan al vencer, y las reglas impiden nuevas lecturas, entradas y escrituras. Publica las reglas NUEVAS completas antes de usar esta entrega. Conserva `.env.local`. Para GitHub Pages, vuelve a generar y publicar `dist/`.
 
@@ -25,6 +25,10 @@ Se requiere Node 20.12 o posterior para leer el archivo de entorno local; se rec
 
 No se necesita Functions, Scheduler, Storage ni el plan Blaze para los tableros de esta versión.
 
+En una clase, los profesores conectados pueden usar **Anatomía 3D → Agregar** para compartir un modelo del catálogo. En los grupos estudiantiles, cualquier participante conectado puede agregar o quitar modelos. Los modelos compartidos aparecen en el mismo lienzo de escritura. Arrastra un modelo para girarlo, pasa el cursor para ver una descripción y haz clic o toca una estructura para aislarla. Selecciona Lápiz, Resaltador o Texto para anotar encima. Usa **Anotar sobre 3D** para alternar entre escritura y exploración. El catálogo incluye el riñón completo, el riñón en corte, las nefronas del 15 % y del 85 % y el glomérulo en detalle. Realtime Database guarda la lista compartida y los modelos GLB se sirven desde la aplicación.
+
+Los controles **− / +** de la barra ajustan el tamaño compartido de cada modelo entre 75 % y 200 %. La rueda y el pellizco acercan el modelo para la inspección individual. **Vista amplia** aprovecha el espacio del panel lateral para mostrar más superficie de escritura en pantalla. Los trazos y textos se guardan en sus posiciones del lienzo.
+
 1. Configura `.env.local` e inicia con `npm start` como se indica arriba.
 2. Firebase Console → Realtime Database → Reglas: reemplaza las reglas completas por el archivo `database.rules.json` de ESTA versión y pulsa Publicar.
 3. Recarga Risio e inicia sesión con correo verificado. Crea tu grupo desde Tableros.
@@ -43,7 +47,7 @@ La distribución Spark no incluye `functions/` ni sus pruebas. No ejecutes coman
 
 ## 3. Publicación estática y GitHub
 
-Para generar los archivos que se publicarán:
+Este mismo proyecto se puede ejecutar con `npm start` o compilar para GitHub Pages. Para generar los archivos que se publicarán:
 
 ```bash
 npm run build:web

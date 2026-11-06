@@ -29,6 +29,19 @@ try {
   await assertFails(unverified.database().ref('annotations/unverified').get());
   await assertFails(guest.database().ref('annotations/alice').get());
   await assertFails(alice.database().ref('annotations/alice/one').update({extra: 'bad'}));
+  const attempt = {answers: {q1: 1, q2: 3, q3: 0, q4: 2, q5: 0}, submittedAt: Date.now() - 100};
+  const ownAttempt = alice.database().ref('assessmentAttempts/alice/morfologia-v1');
+  await assertSucceeds(ownAttempt.set(attempt));
+  assert.deepEqual((await assertSucceeds(ownAttempt.get())).val(), attempt);
+  await assertSucceeds(ownAttempt.child('answers/q1').set(2));
+  await assertFails(ownAttempt.child('answers/q1').set(4));
+  await assertFails(ownAttempt.child('answers/q1').remove());
+  await assertFails(ownAttempt.child('answers/q6').set(0));
+  await assertFails(alice.database().ref('assessmentAttempts/alice/inexistente').set(attempt));
+  await assertFails(bob.database().ref('assessmentAttempts/alice/morfologia-v1').get());
+  await assertFails(bob.database().ref('assessmentAttempts/alice/morfologia-v1').set(attempt));
+  await assertFails(unverified.database().ref('assessmentAttempts/unverified/morfologia-v1').set(attempt));
+  await assertFails(guest.database().ref('assessmentAttempts/alice/morfologia-v1').get());
   await assertFails(alice.database().ref('teacherApprovals/alice').set(true));
   await assertSucceeds(bob.database().ref('profiles/bob').set({...profile, requestedRole:'teacher', semester:null}));
   await assertFails(bob.database().ref('teacherApprovals/bob').set(true));
@@ -37,6 +50,6 @@ try {
   await assertFails(unverified.storage().ref('private/unverified/test').putString('Hello', 'raw', {contentType:'text/plain'}));
   await assertFails(alice.storage().ref('private/alice/exe').putString('bad', 'raw', {contentType:'application/x-msdownload'}));
   await assertFails(bob.storage().ref('private/alice/test').delete());
-  console.log('OK: 26 comprobaciones de reglas; notas privadas, correo verificado, perfiles y permisos docentes protegidos, adjuntos privados.');
+  console.log('OK: notas e intentos privados, respuestas validadas, correo verificado, perfiles y permisos docentes protegidos, adjuntos privados.');
   if (process.env.RISIO_BROWSER_TEST) await import('./verify-auth-browser.mjs');
 } finally { await env.cleanup(); }
